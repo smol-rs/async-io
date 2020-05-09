@@ -12,7 +12,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ubuntu-latest
+        os: [ubuntu-latest]
         rust: [nightly, beta, stable]
     steps:
       - uses: actions/checkout@v2
