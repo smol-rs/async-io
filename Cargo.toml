@@ -1,0 +1,21 @@
+[package]
+name = "blocking"
+version = "0.2.0"
+authors = ["Stjepan Glavina <stjepang@gmail.com>"]
+edition = "2018"
+description = "An executor for isolating blocking I/O in async programs"
+license = "Apache-2.0 OR MIT"
+repository = "https://github.com/stjepang/blocking"
+homepage = "https://github.com/stjepang/blocking"
+documentation = "https://docs.rs/blocking"
+keywords = ["async", "file", "stdio", "stdin", "process"]
+categories = ["asynchronous", "concurrency"]
+readme = "README.md"
+
+[dependencies]
+async-task = "3.0.0"
+futures = { version = "0.3.4", default-features = false, features = ["std"] }
+once_cell = "1.3.1"
+
+[dev-dependencies]
+futures = { version = "0.3.4", default-features = false, features = ["executor"] }
