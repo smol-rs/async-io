@@ -32,28 +32,24 @@ thread is idle, it waits for the next task or shuts down after a certain timeout
 [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html
 [io_uring]: https://lwn.net/Articles/776703/
 
-# Examples
+## Examples
 
-Spawn a blocking future with [`Blocking::spawn()`]:
+Spawn a blocking future with `Blocking::spawn()`:
 
 ```rust
 use blocking::Blocking;
 use std::fs;
 
-# futures::executor::block_on(async {
 let contents = Blocking::spawn(async { fs::read_to_string("file.txt") }).await?;
-# std::io::Result::Ok(()) });
 ```
 
-Or do the same with the [`blocking!`] macro:
+Or do the same with the `blocking!` macro:
 
 ```rust
 use blocking::blocking;
 use std::fs;
 
-# futures::executor::block_on(async {
 let contents = blocking!(fs::read_to_string("file.txt"))?;
-# std::io::Result::Ok(()) });
 ```
 
 Read a file and pipe its contents to stdout:
@@ -63,12 +59,10 @@ use blocking::Blocking;
 use std::fs::File;
 use std::io::stdout;
 
-# futures::executor::block_on(async {
 let input = Blocking::new(File::open("file.txt")?);
 let mut output = Blocking::new(stdout());
 
 futures::io::copy(input, &mut output).await?;
-# std::io::Result::Ok(()) });
 ```
 
 Iterate over the contents of a directory:
@@ -78,13 +72,11 @@ use blocking::Blocking;
 use futures::prelude::*;
 use std::fs;
 
-# futures::executor::block_on(async {
 let mut dir = Blocking::new(fs::read_dir(".")?);
 
 while let Some(item) = dir.next().await {
     println!("{}", item?.file_name().to_string_lossy());
 }
-# std::io::Result::Ok(()) });
 ```
 
 ## License
