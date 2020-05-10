@@ -1,6 +1,6 @@
 [package]
 name = "blocking"
-version = "0.2.0"
+version = "0.3.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 description = "An executor for isolating blocking I/O in async programs"

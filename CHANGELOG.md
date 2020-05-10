@@ -1,3 +1,8 @@
+# Version 0.3.0
+
+- Remove `Blocking::spawn()`.
+- Implement `Future` for `Blocking` only when the inner type is a `FnOnce`.
+
 # Version 0.2.0
 
 - Initial version
