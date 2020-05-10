@@ -17,14 +17,13 @@ Sometimes there's no way to avoid blocking I/O. Consider files or stdin, which h
 support on modern operating systems. While [IOCP], [AIO], and [io_uring] are possible
 solutions, they're not always available or ideal.
 
-Since blocking is not allowed inside futures, we must move blocking I/O onto a special
-executor provided by this crate. On this executor, futures are allowed to "cheat" and block
-without any restrictions. The executor dynamically spawns and stops threads depending on the
-current number of running futures.
+Since blocking is not allowed inside futures, we must move blocking I/O onto a special thread
+pool provided by this crate. The pool dynamically spawns and stops threads depending on the
+current number of running I/O jobs.
 
 Note that there is a limit on the number of active threads. Once that limit is hit, a running
-task has to complete or yield before other tasks get a chance to continue running. When a
-thread is idle, it waits for the next task or shuts down after a certain timeout.
+job has to finish before others get a chance to run. When a thread is idle, it waits for the
+next job or shuts down after a certain timeout.
 
 [IOCP]: https://en.wikipedia.org/wiki/Input/output_completion_port
 [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html
@@ -32,13 +31,13 @@ thread is idle, it waits for the next task or shuts down after a certain timeout
 
 ## Examples
 
-Spawn a blocking future with `Blocking::spawn()`:
+Await a blocking I/O operation with `Blocking::new()`:
 
 ```rust
 use blocking::Blocking;
 use std::fs;
 
-let contents = Blocking::spawn(async { fs::read_to_string("file.txt") }).await?;
+let contents = Blocking::new(|| fs::read_to_string("file.txt")).await?;
 ```
 
 Or do the same with the `blocking!` macro:

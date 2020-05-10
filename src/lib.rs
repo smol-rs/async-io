@@ -4,14 +4,13 @@
 //! support on modern operating systems. While [IOCP], [AIO], and [io_uring] are possible
 //! solutions, they're not always available or ideal.
 //!
-//! Since blocking is not allowed inside futures, we must move blocking I/O onto a special
-//! executor provided by this crate. On this executor, futures are allowed to "cheat" and block
-//! without any restrictions. The executor dynamically spawns and stops threads depending on the
-//! current number of running futures.
+//! Since blocking is not allowed inside futures, we must move blocking I/O onto a special thread
+//! pool provided by this crate. The pool dynamically spawns and stops threads depending on the
+//! current number of running I/O jobs.
 //!
 //! Note that there is a limit on the number of active threads. Once that limit is hit, a running
-//! task has to complete or yield before other tasks get a chance to continue running. When a
-//! thread is idle, it waits for the next task or shuts down after a certain timeout.
+//! job has to finish before others get a chance to run. When a thread is idle, it waits for the
+//! next job or shuts down after a certain timeout.
 //!
 //! [IOCP]: https://en.wikipedia.org/wiki/Input/output_completion_port
 //! [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html
@@ -19,14 +18,14 @@
 //!
 //! # Examples
 //!
-//! Spawn a blocking future with [`Blocking::spawn()`]:
+//! Await a blocking I/O operation with [`Blocking::new()`]:
 //!
 //! ```no_run
 //! use blocking::Blocking;
 //! use std::fs;
 //!
 //! # futures::executor::block_on(async {
-//! let contents = Blocking::spawn(async { fs::read_to_string("file.txt") }).await?;
+//! let contents = Blocking::new(|| fs::read_to_string("file.txt")).await?;
 //! # std::io::Result::Ok(()) });
 //! ```
 //!
@@ -87,15 +86,22 @@ use std::time::Duration;
 
 use futures::channel::{mpsc, oneshot};
 use futures::prelude::*;
-use futures::task::{AtomicWaker, ArcWake, waker_ref};
+use futures::task::{waker_ref, ArcWake, AtomicWaker};
 use once_cell::sync::Lazy;
 
 /// Awaits the output of a spawned future.
 type Task<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
 /// A spawned future and its current state.
+///
+/// How this works was explained in a [blog post].
+///
+/// [blog post]: https://stjepang.github.io/2020/01/31/build-your-own-executor.html
 struct Runnable {
+    /// Current state of the task.
     state: AtomicUsize,
+
+    /// The inner future.
     future: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>,
 }
 
@@ -185,8 +191,8 @@ impl Executor {
         });
         EXECUTOR.schedule(runnable);
 
-        // Return a join handle that retrieves the output of the future.
-        Box::pin(async { r.await.unwrap() })
+        // Return a handle that retrieves the output of the future.
+        Box::pin(async { r.await.expect("future has panicked") })
     }
 
     /// Runs the main loop on the current thread.
@@ -257,8 +263,7 @@ impl Executor {
 
 /// Spawns blocking I/O onto a thread.
 ///
-/// Note that `blocking!(expr)` is just syntax sugar for
-/// `Blocking::spawn(async move { expr }).await`.
+/// Note that `blocking!(expr)` is just syntax sugar for `Blocking::new(move || expr).await`.
 ///
 /// # Examples
 ///
@@ -285,29 +290,18 @@ impl Executor {
 /// ```
 #[macro_export]
 macro_rules! blocking {
-    ($($expr:tt)*) => {
-        $crate::Blocking::spawn(async move { $($expr)* }).await
+    ($expr:expr) => {
+        $crate::Blocking::new(move || $expr).await
     };
 }
 
 /// Async I/O that runs on a thread.
 ///
-/// This handle represents a future performing some blocking I/O on the special thread pool. The
-/// output of the future can be awaited because [`Blocking`] itself is a future.
-///
-/// It's also possible to interact with [`Blocking`] through [`Stream`], [`AsyncRead`] and
-/// [`AsyncWrite`] traits if the inner type implements [`Iterator`], [`Read`], or [`Write`].
-///
-/// To spawn a future and start it immediately, use [`Blocking::spawn()`]. To create an I/O handle
-/// that will lazily spawn an I/O future on its own, use [`Blocking::new()`].
-///
-/// If the [`Blocking`] handle is dropped, the future performing I/O will be canceled if it hasn't
-/// completed yet. However, note that it's not possible to forcibly cancel blocking I/O, so if the
-/// future is currently running, it won't be canceled until it yields.
+/// This type implements traits [`Future`], [`Stream`], [`AsyncRead`], or [`AsyncWrite`] if the
+/// inner type implements [`FnOnce`], [`Iterator`], [`Read`], or [`Write`], respectively.
 ///
 /// If writing some data through the [`AsyncWrite`] trait, make sure to flush before dropping the
-/// [`Blocking`] handle or some written data might get lost. Alternatively, await the handle to
-/// complete the pending work and extract the inner blocking I/O handle.
+/// [`Blocking`] handle or some written data might get lost.
 ///
 /// # Examples
 ///
@@ -319,14 +313,13 @@ macro_rules! blocking {
 /// # futures::executor::block_on(async {
 /// let mut stdout = Blocking::new(stdout());
 /// stdout.write_all(b"Hello world!").await?;
-///
-/// let inner = stdout.await;
+/// stdout.flush().await?;
 /// # std::io::Result::Ok(()) });
 /// ```
 pub struct Blocking<T>(State<T>);
 
 impl<T> Blocking<T> {
-    /// Wraps a blocking I/O handle into an async interface.
+    /// Wraps a blocking I/O handle or closure into an async interface.
     ///
     /// # Examples
     ///
@@ -345,7 +338,7 @@ impl<T> Blocking<T> {
 
     /// Gets a mutable reference to the blocking I/O handle.
     ///
-    /// This is an async method because the I/O handle might be on a different thread and needs to
+    /// This is an async method because the I/O handle might be on the thread pool and needs to
     /// be moved onto the current thread before we can get a reference to it.
     ///
     /// # Examples
@@ -366,7 +359,7 @@ impl<T> Blocking<T> {
         // Assume idle state and get a reference to the inner value.
         match &mut self.0 {
             State::Idle(t) => t.as_mut().expect("inner value was taken out"),
-            State::Streaming(..) | State::Reading(..) | State::Writing(..) | State::Task(..) => {
+            State::Closure(..) | State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
                 unreachable!("when stopped, the state machine must be in idle state");
             }
         }
@@ -374,10 +367,8 @@ impl<T> Blocking<T> {
 
     /// Extracts the inner blocking I/O handle.
     ///
-    /// This is an async method because the I/O handle might be on a different thread and needs to
+    /// This is an async method because the I/O handle might be on the thread pool and needs to
     /// be moved onto the current thread before we can extract it.
-    ///
-    /// Note that awaiting this method is equivalent to awaiting the [`Blocking`] handle.
     ///
     /// # Examples
     ///
@@ -404,7 +395,7 @@ impl<T> Blocking<T> {
         // Assume idle state and extract the inner value.
         match &mut this.0 {
             State::Idle(t) => *t.take().expect("inner value was taken out"),
-            State::Streaming(..) | State::Reading(..) | State::Writing(..) | State::Task(..) => {
+            State::Closure(..) | State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
                 unreachable!("when stopped, the state machine must be in idle state");
             }
         }
@@ -417,6 +408,15 @@ impl<T> Blocking<T> {
         loop {
             match &mut self.0 {
                 State::Idle(_) => return Poll::Ready(Ok(())),
+
+                State::Closure(any, task) => {
+                    // Drop the receiver to close the channel.
+                    any.take();
+
+                    // Poll the task to wait for it to finish.
+                    futures::ready!(Pin::new(task).poll(cx));
+                    self.0 = State::Idle(None);
+                }
 
                 State::Streaming(any, task) => {
                     // Drop the receiver to close the channel. This stops the `send()` operation in
@@ -452,52 +452,63 @@ impl<T> Blocking<T> {
                     self.0 = State::Idle(Some(io));
                     res?;
                 }
-
-                State::Task(task) => {
-                    // Poll the task to retrieve the inner value.
-                    let t = futures::ready!(Pin::new(task).poll(cx));
-                    self.0 = State::Idle(Some(Box::new(t)));
-                }
             }
         }
     }
 }
 
-impl<T: Send + 'static> Blocking<T> {
-    /// Spawns a future that is allowed to do blocking I/O.
-    ///
-    /// If the [`Blocking`] handle is dropped, the future will be canceled if it hasn't completed
-    /// yet. However, note that it's not possible to forcibly cancel blocking I/O, so if the future
-    /// is currently running, it won't be canceled until it yields.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use blocking::Blocking;
-    /// use std::fs;
-    ///
-    /// # futures::executor::block_on(async {
-    /// let contents = Blocking::spawn(async { fs::read_to_string("file.txt") }).await?;
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub fn spawn(future: impl Future<Output = T> + Send + 'static) -> Blocking<T> {
-        let task = Executor::spawn(future);
-        Blocking(State::Task(task))
-    }
-}
-
-impl<T> Future for Blocking<T> {
+impl<F, T> Future for Blocking<F>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
     type Output = T;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        // Wait for the running task to stop and ignore I/O errors if there are any.
-        let _ = futures::ready!(self.poll_stop(cx));
+        loop {
+            match &mut self.0 {
+                // If not in idle or task state, stop the running task.
+                State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
+                    // Wait for the running task to stop.
+                    let _ = futures::ready!(self.poll_stop(cx));
+                }
 
-        // Assume idle state and extract the inner value.
-        match &mut self.0 {
-            State::Idle(t) => Poll::Ready(*t.take().expect("inner value was taken out")),
-            State::Streaming(..) | State::Reading(..) | State::Writing(..) | State::Task(..) => {
-                unreachable!("when stopped, the state machine must be in idle state");
+                // If idle, spawn the closure.
+                State::Idle(closure) => {
+                    // Take the closure out to call it on a blocking task.
+                    let closure = closure.take().expect("inner closure was taken out");
+
+                    let (sender, receiver) = oneshot::channel();
+
+                    // Spawn a blocking task that runs the iterator and returns it when done.
+                    let task = Executor::spawn(async move {
+                        let _ = sender.send(closure());
+                    });
+
+                    // Move into the task state and poll again.
+                    self.0 = State::Closure(Some(Box::new(receiver)), task);
+                }
+
+                // If running the closure, await it.
+                State::Closure(any, task) => {
+                    // Poll the task to wait for it to finish.
+                    futures::ready!(Pin::new(task).poll(cx));
+
+                    // Extract the receiver.
+                    let mut receiver = any
+                        .take()
+                        .expect("future has panicked")
+                        .downcast::<oneshot::Receiver<T>>()
+                        .unwrap();
+                    self.0 = State::Idle(None);
+
+                    // Return the output from the closure.
+                    let t = receiver
+                        .try_recv()
+                        .expect("future has panicked")
+                        .expect("future was awaited but the oneshot channel is empty");
+                    return Poll::Ready(t);
+                }
             }
         }
     }
@@ -512,8 +523,10 @@ enum State<T> {
     /// [`Blocking`].
     Idle(Option<Box<T>>),
 
-    /// A task was spawned by [`Blocking::spawn()`] and is still running.
-    Task(Task<T>),
+    /// The inner closure was spawned and is still running.
+    ///
+    /// The `dyn Any` value here is a `oneshot::Receiver<<T as FnOnce>::Output>`.
+    Closure(Option<Box<dyn Any>>, Task<()>),
 
     /// The inner value is an [`Iterator`] currently iterating in a task.
     ///
@@ -537,7 +550,7 @@ where
         loop {
             match &mut self.0 {
                 // If not in idle or active streaming state, stop the running task.
-                State::Task(..)
+                State::Closure(..)
                 | State::Streaming(None, _)
                 | State::Reading(..)
                 | State::Writing(..) => {
@@ -547,8 +560,8 @@ where
 
                 // If idle, start a streaming task.
                 State::Idle(iter) => {
-                    // If idle, take the iterator out to run it on a blocking task.
-                    let mut iter = iter.take().unwrap();
+                    // Take the iterator out to run it on a blocking task.
+                    let mut iter = iter.take().expect("inner iterator was taken out");
 
                     // This channel capacity seems to work well in practice. If it's too low, there
                     // will be too much synchronization between tasks. If too high, memory
@@ -601,7 +614,7 @@ impl<T: Read + Send + 'static> AsyncRead for Blocking<T> {
         loop {
             match &mut self.0 {
                 // If not in idle or active reading state, stop the running task.
-                State::Task(..)
+                State::Closure(..)
                 | State::Reading(None, _)
                 | State::Streaming(..)
                 | State::Writing(..) => {
@@ -611,8 +624,8 @@ impl<T: Read + Send + 'static> AsyncRead for Blocking<T> {
 
                 // If idle, start a reading task.
                 State::Idle(io) => {
-                    // If idle, take the I/O handle out to read it on a blocking task.
-                    let mut io = io.take().unwrap();
+                    // Take the I/O handle out to read it on a blocking task.
+                    let mut io = io.take().expect("inner value was taken out");
 
                     // This pipe capacity seems to work well in practice. If it's too low, there
                     // will be too much synchronization between tasks. If too high, memory
@@ -668,7 +681,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
         loop {
             match &mut self.0 {
                 // If not in idle or active writing state, stop the running task.
-                State::Task(..)
+                State::Closure(..)
                 | State::Writing(None, _)
                 | State::Streaming(..)
                 | State::Reading(..) => {
@@ -678,8 +691,8 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
 
                 // If idle, start the writing task.
                 State::Idle(io) => {
-                    // If idle, take the I/O handle out to write on a blocking task.
-                    let mut io = io.take().unwrap();
+                    // Take the I/O handle out to write on a blocking task.
+                    let mut io = io.take().expect("inner value was taken out");
 
                     // This pipe capacity seems to work well in practice. If it's too low, there will
                     // be too much synchronization between tasks. If too high, memory consumption
@@ -702,11 +715,11 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
                         }
                     });
 
-                    // Move into the busy state.
+                    // Move into the busy state and poll again.
                     self.0 = State::Writing(Some(writer), task);
                 }
 
-                // If writing,write more bytes into the pipe.
+                // If writing, write more bytes into the pipe.
                 State::Writing(Some(writer), _) => return Pin::new(writer).poll_write(cx, buf),
             }
         }
@@ -716,7 +729,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
         loop {
             match &mut self.0 {
                 // If not in idle state, stop the running task.
-                State::Task(..)
+                State::Closure(..)
                 | State::Streaming(..)
                 | State::Writing(..)
                 | State::Reading(..) => {
@@ -742,7 +755,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
 
 /// Creates a bounded single-producer single-consumer pipe.
 ///
-/// A pipe is a ring buffer of `cap` bytes that implements traits [`AsyncRead`] and [`AsyncWrite`].
+/// A pipe is a ring buffer of `cap` bytes that can be asynchronously read from and written to.
 ///
 /// When the sender is dropped, remaining bytes in the pipe can still be read. After that, attempts
 /// to read will result in `Ok(0)`, i.e. they will always 'successfully' read 0 bytes.
