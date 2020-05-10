@@ -375,7 +375,6 @@ impl<T> Blocking<T> {
     ///
     /// ```no_run
     /// use blocking::Blocking;
-    /// use futures::prelude::*;
     /// use std::fs::File;
     ///
     /// # futures::executor::block_on(async {
