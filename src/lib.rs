@@ -85,44 +85,62 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
-use futures::channel::mpsc;
+use futures::channel::{mpsc, oneshot};
 use futures::prelude::*;
-use futures::task::AtomicWaker;
+use futures::task::{AtomicWaker, ArcWake, waker_ref};
 use once_cell::sync::Lazy;
 
-/// A runnable future, ready for execution.
-///
-/// When a future is internally spawned using `async_task::spawn()` or `async_task::spawn_local()`,
-/// we get back two values:
-///
-/// 1. an `async_task::Task<()>`, which we refer to as a `Runnable`
-/// 2. an `async_task::JoinHandle<T, ()>`, which is wrapped inside a `Task<T>`
-///
-/// Once a `Runnable` is run, it "vanishes" and only reappears when its future is woken. When it's
-/// woken up, its schedule function is called, which means the `Runnable` gets pushed into the main
-/// task queue in the executor.
-type Runnable = async_task::Task<()>;
+/// Awaits the output of a spawned future.
+type Task<T> = Pin<Box<dyn Future<Output = T> + Send>>;
 
-struct Task<T>(Option<async_task::JoinHandle<T, ()>>);
+/// A spawned future and its current state.
+struct Runnable {
+    state: AtomicUsize,
+    future: Mutex<Pin<Box<dyn Future<Output = ()> + Send>>>,
+}
 
-impl<T> Drop for Task<T> {
-    fn drop(&mut self) {
-        if let Some(handle) = &self.0 {
-            handle.cancel();
+impl Runnable {
+    /// Runs the task.
+    fn run(self: Arc<Runnable>) {
+        // Set if the task has been woken.
+        const WOKEN: usize = 0b01;
+        // Set if the task is currently running.
+        const RUNNING: usize = 0b10;
+
+        impl ArcWake for Runnable {
+            fn wake_by_ref(runnable: &Arc<Self>) {
+                if runnable.state.fetch_or(WOKEN, Ordering::SeqCst) == 0 {
+                    EXECUTOR.schedule(runnable.clone());
+                }
+            }
+        }
+
+        // The state is now "not woken" and "running".
+        self.state.store(RUNNING, Ordering::SeqCst);
+
+        // Poll the future.
+        let waker = waker_ref(&self);
+        let cx = &mut Context::from_waker(&waker);
+        let poll = self.future.try_lock().unwrap().as_mut().poll(cx);
+
+        // If the future hasn't completed and was woken while running, then reschedule it.
+        if poll.is_pending() {
+            if self.state.fetch_and(!RUNNING, Ordering::SeqCst) == WOKEN | RUNNING {
+                EXECUTOR.schedule(self);
+            }
         }
     }
 }
 
-impl<T> Future for Task<T> {
-    type Output = T;
-
-    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        match Pin::new(&mut self.0.as_mut().unwrap()).poll(cx) {
-            Poll::Pending => Poll::Pending,
-            Poll::Ready(output) => Poll::Ready(output.expect("task has failed")),
-        }
-    }
-}
+/// Lazily initialized global executor.
+static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
+    inner: Mutex::new(Inner {
+        idle_count: 0,
+        thread_count: 0,
+        queue: VecDeque::new(),
+    }),
+    cvar: Condvar::new(),
+});
 
 /// The blocking executor.
 struct Executor {
@@ -146,7 +164,7 @@ struct Inner {
     thread_count: usize,
 
     /// The queue of blocking tasks.
-    queue: VecDeque<Runnable>,
+    queue: VecDeque<Arc<Runnable>>,
 }
 
 impl Executor {
@@ -154,19 +172,21 @@ impl Executor {
     ///
     /// Returns a [`Task`] handle for the spawned task.
     fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> Task<T> {
-        static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
-            inner: Mutex::new(Inner {
-                idle_count: 0,
-                thread_count: 0,
-                queue: VecDeque::new(),
-            }),
-            cvar: Condvar::new(),
-        });
+        // Wrap the future into one that sends the output into a channel.
+        let (s, r) = oneshot::channel();
+        let future = async move {
+            let _ = s.send(future.await);
+        };
 
-        // Create a task, schedule it, and return its `Task` handle.
-        let (runnable, handle) = async_task::spawn(future, |r| EXECUTOR.schedule(r), ());
-        runnable.schedule();
-        Task(Some(handle))
+        // Create a task and schedule it for execution.
+        let runnable = Arc::new(Runnable {
+            state: AtomicUsize::new(0),
+            future: Mutex::new(Box::pin(future)),
+        });
+        EXECUTOR.schedule(runnable);
+
+        // Return a join handle that retrieves the output of the future.
+        Box::pin(async { r.await.unwrap() })
     }
 
     /// Runs the main loop on the current thread.
@@ -208,7 +228,7 @@ impl Executor {
     }
 
     /// Schedules a runnable task for execution.
-    fn schedule(&'static self, runnable: Runnable) {
+    fn schedule(&'static self, runnable: Arc<Runnable>) {
         let mut inner = self.inner.lock().unwrap();
         inner.queue.push_back(runnable);
 
