@@ -359,10 +359,59 @@ impl<T> Blocking<T> {
         // Assume idle state and get a reference to the inner value.
         match &mut self.0 {
             State::Idle(t) => t.as_mut().expect("inner value was taken out"),
-            State::Closure(..) | State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
+            State::WithMut(..)
+            | State::Closure(..)
+            | State::Streaming(..)
+            | State::Reading(..)
+            | State::Writing(..) => {
                 unreachable!("when stopped, the state machine must be in idle state");
             }
         }
+    }
+
+    /// Performs a blocking operation on the I/O handle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use blocking::Blocking;
+    /// use futures::prelude::*;
+    /// use std::fs::File;
+    ///
+    /// # futures::executor::block_on(async {
+    /// let mut file = Blocking::new(File::create("file.txt")?);
+    /// let metadata = file.with_mut(|f| f.metadata()).await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub async fn with_mut<R, F>(&mut self, op: F) -> R
+    where
+        F: FnOnce(&mut T) -> R + Send + 'static,
+        R: Send + 'static,
+        T: Send + 'static,
+    {
+        // Wait for the running task to stop and ignore I/O errors if there are any.
+        let _ = future::poll_fn(|cx| self.poll_stop(cx)).await;
+
+        // Assume idle state and take out the inner value.
+        let mut t = match &mut self.0 {
+            State::Idle(t) => t.take().expect("inner value was taken out"),
+            State::WithMut(..)
+            | State::Closure(..)
+            | State::Streaming(..)
+            | State::Reading(..)
+            | State::Writing(..) => {
+                unreachable!("when stopped, the state machine must be in idle state");
+            }
+        };
+
+        let (sender, receiver) = oneshot::channel();
+        let task = Executor::spawn(async move {
+            let _ = sender.send(op(&mut t));
+            t
+        });
+        self.0 = State::WithMut(task);
+
+        receiver.await.expect("`with_mut()` operation has panicked")
     }
 
     /// Extracts the inner blocking I/O handle.
@@ -395,7 +444,11 @@ impl<T> Blocking<T> {
         // Assume idle state and extract the inner value.
         match &mut this.0 {
             State::Idle(t) => *t.take().expect("inner value was taken out"),
-            State::Closure(..) | State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
+            State::WithMut(..)
+            | State::Closure(..)
+            | State::Streaming(..)
+            | State::Reading(..)
+            | State::Writing(..) => {
                 unreachable!("when stopped, the state machine must be in idle state");
             }
         }
@@ -408,6 +461,12 @@ impl<T> Blocking<T> {
         loop {
             match &mut self.0 {
                 State::Idle(_) => return Poll::Ready(Ok(())),
+
+                State::WithMut(task) => {
+                    // Poll the task to wait for it to finish.
+                    let t = futures::ready!(Pin::new(task).poll(cx));
+                    self.0 = State::Idle(Some(t));
+                }
 
                 State::Closure(any, task) => {
                     // Drop the receiver to close the channel.
@@ -457,18 +516,21 @@ impl<T> Blocking<T> {
     }
 }
 
-impl<F, T> Future for Blocking<F>
+impl<T, R> Future for Blocking<T>
 where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
+    T: FnOnce() -> R + Send + 'static,
+    R: Send + 'static,
 {
-    type Output = T;
+    type Output = R;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         loop {
             match &mut self.0 {
                 // If not in idle or task state, stop the running task.
-                State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
+                State::WithMut(..)
+                | State::Streaming(..)
+                | State::Reading(..)
+                | State::Writing(..) => {
                     // Wait for the running task to stop.
                     let _ = futures::ready!(self.poll_stop(cx));
                 }
@@ -498,16 +560,16 @@ where
                     let mut receiver = any
                         .take()
                         .expect("future has panicked")
-                        .downcast::<oneshot::Receiver<T>>()
+                        .downcast::<oneshot::Receiver<R>>()
                         .unwrap();
                     self.0 = State::Idle(None);
 
                     // Return the output from the closure.
-                    let t = receiver
+                    let r = receiver
                         .try_recv()
                         .expect("future has panicked")
                         .expect("future was awaited but the oneshot channel is empty");
-                    return Poll::Ready(t);
+                    return Poll::Ready(r);
                 }
             }
         }
@@ -522,6 +584,9 @@ enum State<T> {
     /// extracted out by [`Blocking::into_inner()`], [`AsyncWrite::poll_close()`], or by awaiting
     /// [`Blocking`].
     Idle(Option<Box<T>>),
+
+    /// A [`Blocking::with_mut()`] closure was spawned and is still running.
+    WithMut(Task<Box<T>>),
 
     /// The inner closure was spawned and is still running.
     ///
@@ -550,7 +615,8 @@ where
         loop {
             match &mut self.0 {
                 // If not in idle or active streaming state, stop the running task.
-                State::Closure(..)
+                State::WithMut(..)
+                | State::Closure(..)
                 | State::Streaming(None, _)
                 | State::Reading(..)
                 | State::Writing(..) => {
@@ -614,7 +680,8 @@ impl<T: Read + Send + 'static> AsyncRead for Blocking<T> {
         loop {
             match &mut self.0 {
                 // If not in idle or active reading state, stop the running task.
-                State::Closure(..)
+                State::WithMut(..)
+                | State::Closure(..)
                 | State::Reading(None, _)
                 | State::Streaming(..)
                 | State::Writing(..) => {
@@ -681,7 +748,8 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
         loop {
             match &mut self.0 {
                 // If not in idle or active writing state, stop the running task.
-                State::Closure(..)
+                State::WithMut(..)
+                | State::Closure(..)
                 | State::Writing(None, _)
                 | State::Streaming(..)
                 | State::Reading(..) => {
@@ -729,7 +797,8 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
         loop {
             match &mut self.0 {
                 // If not in idle state, stop the running task.
-                State::Closure(..)
+                State::WithMut(..)
+                | State::Closure(..)
                 | State::Streaming(..)
                 | State::Writing(..)
                 | State::Reading(..) => {
