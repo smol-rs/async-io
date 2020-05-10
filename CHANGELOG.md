@@ -1,3 +1,7 @@
+# Version 0.3.1
+
+- Add `Blocking::with_mut()`.
+
 # Version 0.3.0
 
 - Remove `Blocking::spawn()`.
