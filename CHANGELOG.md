@@ -1,3 +1,7 @@
+# Version 0.3.2
+
+- Make `Blocking` implement `Send` in more cases.
+
 # Version 0.3.1
 
 - Add `Blocking::with_mut()`.
