@@ -590,12 +590,12 @@ enum State<T> {
     /// The inner closure was spawned and is still running.
     ///
     /// The `dyn Any` value here is a `oneshot::Receiver<<T as FnOnce>::Output>`.
-    Closure(Option<Box<dyn Any>>, Task<()>),
+    Closure(Option<Box<dyn Any + Send>>, Task<()>),
 
     /// The inner value is an [`Iterator`] currently iterating in a task.
     ///
     /// The `dyn Any` value here is a `mpsc::Receiver<<T as Iterator>::Item>`.
-    Streaming(Option<Box<dyn Any>>, Task<Box<T>>),
+    Streaming(Option<Box<dyn Any + Send>>, Task<Box<T>>),
 
     /// The inner value is a [`Read`] currently reading in a task.
     Reading(Option<Reader>, Task<(io::Result<()>, Box<T>)>),
