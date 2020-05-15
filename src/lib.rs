@@ -295,13 +295,16 @@ macro_rules! blocking {
     };
 }
 
-/// Async I/O that runs on a thread.
+/// Async interface for blocking I/O.
+///
+/// Blocking I/O must be isolated from async code. This type moves blocking operations onto a
+/// special thread pool while exposing a familiar async interface.
 ///
 /// This type implements traits [`Future`], [`Stream`], [`AsyncRead`], or [`AsyncWrite`] if the
 /// inner type implements [`FnOnce`], [`Iterator`], [`Read`], or [`Write`], respectively.
 ///
-/// If writing some data through the [`AsyncWrite`] trait, make sure to flush before dropping the
-/// [`Blocking`] handle or some written data might get lost.
+/// If writing data through the [`AsyncWrite`] trait, make sure to flush before dropping the
+/// [`Blocking`] handle or some buffered data might get lost.
 ///
 /// # Examples
 ///
@@ -703,7 +706,7 @@ impl<T: Read + Send + 'static> AsyncRead for Blocking<T> {
                         // Copy bytes from the I/O handle into the pipe until the pipe is closed or
                         // an error occurs.
                         loop {
-                            match future::poll_fn(|cx| writer.poll_write(cx, &mut io)).await {
+                            match future::poll_fn(|cx| writer.fill(cx, &mut io)).await {
                                 Ok(0) => return (Ok(()), io),
                                 Ok(_) => {}
                                 Err(err) => return (Err(err), io),
@@ -718,7 +721,7 @@ impl<T: Read + Send + 'static> AsyncRead for Blocking<T> {
                 // If reading, read bytes from the pipe.
                 State::Reading(Some(reader), task) => {
                     // Poll the pipe.
-                    let n = futures::ready!(Pin::new(reader).poll_read(cx, buf))?;
+                    let n = futures::ready!(reader.drain(cx, buf))?;
 
                     // If the pipe is closed, retrieve the I/O handle back from the blocking task.
                     // This is not really a required step, but it's cleaner to drop the handle on
@@ -771,7 +774,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
                         // Copy bytes from the pipe into the I/O handle until the pipe is closed or an
                         // error occurs. Flush the I/O handle at the end.
                         loop {
-                            match future::poll_fn(|cx| reader.poll_read(cx, &mut io)).await {
+                            match future::poll_fn(|cx| reader.drain(cx, &mut io)).await {
                                 Ok(0) => return (io.flush(), io),
                                 Ok(_) => {}
                                 Err(err) => {
@@ -787,7 +790,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
                 }
 
                 // If writing, write more bytes into the pipe.
-                State::Writing(Some(writer), _) => return Pin::new(writer).poll_write(cx, buf),
+                State::Writing(Some(writer), _) => return writer.fill(cx, buf),
             }
         }
     }
@@ -967,7 +970,8 @@ impl Drop for Writer {
 }
 
 impl Reader {
-    fn poll_read(&mut self, cx: &mut Context<'_>, mut dest: impl Write) -> Poll<io::Result<usize>> {
+    /// Reads bytes from this reader and writes into blocking `dest`.
+    fn drain(&mut self, cx: &mut Context<'_>, mut dest: impl Write) -> Poll<io::Result<usize>> {
         let cap = self.inner.cap;
 
         // Calculates the distance between two indices.
@@ -1031,9 +1035,7 @@ impl Reader {
                 unsafe { slice::from_raw_parts(self.inner.buffer.add(real_index(self.head)), n) };
 
             // Copy bytes from the pipe buffer into `dest`.
-            let n = dest
-                .write(pipe_slice)
-                .expect("shouldn't fail because `dest` is a slice");
+            let n = dest.write(pipe_slice)?;
             count += n;
 
             // If pipe is empty or `dest` is full, return.
@@ -1058,7 +1060,8 @@ impl Reader {
 }
 
 impl Writer {
-    fn poll_write(&mut self, cx: &mut Context<'_>, mut src: impl Read) -> Poll<io::Result<usize>> {
+    /// Reads bytes from blocking `src` and writes into this writer.
+    fn fill(&mut self, cx: &mut Context<'_>, mut src: impl Read) -> Poll<io::Result<usize>> {
         // Just a quick check if the pipe is closed, which is why a relaxed load is okay.
         if self.inner.closed.load(Ordering::Relaxed) {
             return Poll::Ready(Ok(0));
@@ -1140,9 +1143,7 @@ impl Writer {
             };
 
             // Copy bytes from `src` into the piper buffer.
-            let n = src
-                .read(pipe_slice_mut)
-                .expect("shouldn't fail because `src` is a slice");
+            let n = src.read(pipe_slice_mut)?;
             count += n;
 
             // If the pipe is full or `src` is empty, return.
