@@ -18,38 +18,38 @@
 //!
 //! # Examples
 //!
-//! Await a blocking I/O operation with [`Blocking::new()`]:
+//! Await a blocking I/O operation with [`Unblock::new()`]:
 //!
 //! ```no_run
-//! use blocking::Blocking;
+//! use blocking::Unblock;
 //! use std::fs;
 //!
 //! # futures::executor::block_on(async {
-//! let contents = Blocking::new(|| fs::read_to_string("file.txt")).await?;
+//! let contents = Unblock::new(|| fs::read_to_string("file.txt")).await?;
 //! # std::io::Result::Ok(()) });
 //! ```
 //!
-//! Or do the same with the [`blocking!`] macro:
+//! Or do the same with the [`unblock!`] macro:
 //!
 //! ```no_run
-//! use blocking::blocking;
+//! use blocking::unblock;
 //! use std::fs;
 //!
 //! # futures::executor::block_on(async {
-//! let contents = blocking!(fs::read_to_string("file.txt"))?;
+//! let contents = unblock!(fs::read_to_string("file.txt"))?;
 //! # std::io::Result::Ok(()) });
 //! ```
 //!
 //! Read a file and pipe its contents to stdout:
 //!
 //! ```no_run
-//! use blocking::Blocking;
+//! use blocking::Unblock;
 //! use std::fs::File;
 //! use std::io::stdout;
 //!
 //! # futures::executor::block_on(async {
-//! let input = Blocking::new(File::open("file.txt")?);
-//! let mut output = Blocking::new(stdout());
+//! let input = Unblock::new(File::open("file.txt")?);
+//! let mut output = Unblock::new(stdout());
 //!
 //! futures::io::copy(input, &mut output).await?;
 //! # std::io::Result::Ok(()) });
@@ -58,12 +58,12 @@
 //! Iterate over the contents of a directory:
 //!
 //! ```no_run
-//! use blocking::Blocking;
+//! use blocking::Unblock;
 //! use futures::prelude::*;
 //! use std::fs;
 //!
 //! # futures::executor::block_on(async {
-//! let mut dir = Blocking::new(fs::read_dir(".")?);
+//! let mut dir = Unblock::new(fs::read_dir(".")?);
 //!
 //! while let Some(item) = dir.next().await {
 //!     println!("{}", item?.file_name().to_string_lossy());
@@ -263,80 +263,80 @@ impl Executor {
 
 /// Spawns blocking I/O onto a thread.
 ///
-/// Note that `blocking!(expr)` is just syntax sugar for `Blocking::new(move || expr).await`.
+/// Note that `unblock!(expr)` is just syntax sugar for `Unblock::new(move || expr).await`.
 ///
 /// # Examples
 ///
 /// Read a file into a string:
 ///
 /// ```no_run
-/// use blocking::blocking;
+/// use blocking::unblock;
 /// use std::fs;
 ///
 /// # futures::executor::block_on(async {
-/// let contents = blocking!(fs::read_to_string("file.txt"))?;
+/// let contents = unblock!(fs::read_to_string("file.txt"))?;
 /// # std::io::Result::Ok(()) });
 /// ```
 ///
 /// Spawn a process:
 ///
 /// ```no_run
-/// use blocking::blocking;
+/// use blocking::unblock;
 /// use std::process::Command;
 ///
 /// # futures::executor::block_on(async {
-/// let out = blocking!(Command::new("dir").output())?;
+/// let out = unblock!(Command::new("dir").output())?;
 /// # std::io::Result::Ok(()) });
 /// ```
 #[macro_export]
-macro_rules! blocking {
+macro_rules! unblock {
     ($expr:expr) => {
-        $crate::Blocking::new(move || $expr).await
+        $crate::Unblock::new(move || $expr).await
     };
 }
 
 /// Async interface for blocking I/O.
 ///
-/// Blocking I/O must be isolated from async code. This type moves blocking operations onto a
+/// Unblock I/O must be isolated from async code. This type moves blocking operations onto a
 /// special thread pool while exposing a familiar async interface.
 ///
 /// This type implements traits [`Future`], [`Stream`], [`AsyncRead`], or [`AsyncWrite`] if the
 /// inner type implements [`FnOnce`], [`Iterator`], [`Read`], or [`Write`], respectively.
 ///
 /// If writing data through the [`AsyncWrite`] trait, make sure to flush before dropping the
-/// [`Blocking`] handle or some buffered data might get lost.
+/// [`Unblock`] handle or some buffered data might get lost.
 ///
 /// # Examples
 ///
 /// ```
-/// use blocking::Blocking;
+/// use blocking::Unblock;
 /// use futures::prelude::*;
 /// use std::io::stdout;
 ///
 /// # futures::executor::block_on(async {
-/// let mut stdout = Blocking::new(stdout());
+/// let mut stdout = Unblock::new(stdout());
 /// stdout.write_all(b"Hello world!").await?;
 /// stdout.flush().await?;
 /// # std::io::Result::Ok(()) });
 /// ```
-pub struct Blocking<T>(State<T>);
+pub struct Unblock<T>(State<T>);
 
-impl<T> Blocking<T> {
+impl<T> Unblock<T> {
     /// Wraps a blocking I/O handle or closure into an async interface.
     ///
     /// # Examples
     ///
     /// ```no_run
-    /// use blocking::Blocking;
+    /// use blocking::Unblock;
     /// use std::io::stdin;
     ///
     /// # futures::executor::block_on(async {
     /// // Create an async handle to standard input.
-    /// let stdin = Blocking::new(stdin());
+    /// let stdin = Unblock::new(stdin());
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub fn new(io: T) -> Blocking<T> {
-        Blocking(State::Idle(Some(Box::new(io))))
+    pub fn new(io: T) -> Unblock<T> {
+        Unblock(State::Idle(Some(Box::new(io))))
     }
 
     /// Gets a mutable reference to the blocking I/O handle.
@@ -347,11 +347,11 @@ impl<T> Blocking<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use blocking::Blocking;
+    /// use blocking::Unblock;
     /// use std::fs::File;
     ///
     /// # futures::executor::block_on(async {
-    /// let mut file = Blocking::new(File::create("file.txt")?);
+    /// let mut file = Unblock::new(File::create("file.txt")?);
     /// let metadata = file.get_mut().await.metadata()?;
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -377,11 +377,11 @@ impl<T> Blocking<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use blocking::Blocking;
+    /// use blocking::Unblock;
     /// use std::fs::File;
     ///
     /// # futures::executor::block_on(async {
-    /// let mut file = Blocking::new(File::create("file.txt")?);
+    /// let mut file = Unblock::new(File::create("file.txt")?);
     /// let metadata = file.with_mut(|f| f.metadata()).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -424,12 +424,12 @@ impl<T> Blocking<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use blocking::Blocking;
+    /// use blocking::Unblock;
     /// use futures::prelude::*;
     /// use std::fs::File;
     ///
     /// # futures::executor::block_on(async {
-    /// let mut file = Blocking::new(File::create("file.txt")?);
+    /// let mut file = Unblock::new(File::create("file.txt")?);
     /// file.write_all(b"Hello world!").await?;
     ///
     /// let file = file.into_inner().await;
@@ -518,7 +518,7 @@ impl<T> Blocking<T> {
     }
 }
 
-impl<T, R> Future for Blocking<T>
+impl<T, R> Future for Unblock<T>
 where
     T: FnOnce() -> R + Send + 'static,
     R: Send + 'static,
@@ -583,11 +583,11 @@ enum State<T> {
     /// There is no blocking task.
     ///
     /// The inner value is readily available, unless it has already been extracted. The value is
-    /// extracted out by [`Blocking::into_inner()`], [`AsyncWrite::poll_close()`], or by awaiting
-    /// [`Blocking`].
+    /// extracted out by [`Unblock::into_inner()`], [`AsyncWrite::poll_close()`], or by awaiting
+    /// [`Unblock`].
     Idle(Option<Box<T>>),
 
-    /// A [`Blocking::with_mut()`] closure was spawned and is still running.
+    /// A [`Unblock::with_mut()`] closure was spawned and is still running.
     WithMut(Task<Box<T>>),
 
     /// The inner closure was spawned and is still running.
@@ -607,7 +607,7 @@ enum State<T> {
     Writing(Option<Writer>, Task<(io::Result<()>, Box<T>)>),
 }
 
-impl<T: Iterator + Send + 'static> Stream for Blocking<T>
+impl<T: Iterator + Send + 'static> Stream for Unblock<T>
 where
     T::Item: Send + 'static,
 {
@@ -673,7 +673,7 @@ where
     }
 }
 
-impl<T: Read + Send + 'static> AsyncRead for Blocking<T> {
+impl<T: Read + Send + 'static> AsyncRead for Unblock<T> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -741,7 +741,7 @@ impl<T: Read + Send + 'static> AsyncRead for Blocking<T> {
     }
 }
 
-impl<T: Write + Send + 'static> AsyncWrite for Blocking<T> {
+impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
