@@ -12,11 +12,19 @@ https://docs.rs/blocking)
 [![Chat](https://img.shields.io/discord/701824908866617385.svg?logo=discord)](
 https://discord.gg/x6m5Vvt)
 
-An executor for isolating blocking I/O in async programs.
+Block on async code or await blocking code.
 
-Sometimes there's no way to avoid blocking I/O. Consider files or stdin, which have weak async
-support on modern operating systems. While [IOCP], [AIO], and [io_uring] are possible
-solutions, they're not always available or ideal.
+To convert async to blocking, *block on* async code with `block_on()`, `block_on!`, or
+`BlockOn`.
+
+To convert blocking to async, *unblock* blocking code with `unblock()`, [`unblock!`, or
+`Unblock`.
+
+# Thread pool
+
+Sometimes there's no way to avoid blocking I/O in async programs. Consider files or stdin,
+which have weak async support on modern operating systems. While [IOCP], [AIO], and [io_uring]
+are possible solutions, they're not always available or ideal.
 
 Since blocking is not allowed inside futures, we must move blocking I/O onto a special thread
 pool provided by this crate. The pool dynamically spawns and stops threads depending on the
@@ -30,51 +38,64 @@ next job or shuts down after a certain timeout.
 [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html
 [io_uring]: https://lwn.net/Articles/776703/
 
-## Examples
+# Examples
 
-Await a blocking I/O operation with `Blocking::new()`:
-
-```rust
-use blocking::Blocking;
-use std::fs;
-
-let contents = Blocking::new(|| fs::read_to_string("file.txt")).await?;
-```
-
-Or do the same with the `blocking!` macro:
+Await a blocking file read with `unblock!`:
 
 ```rust
-use blocking::blocking;
-use std::fs;
+use blocking::{block_on, unblock};
+use std::{fs, io};
 
-let contents = blocking!(fs::read_to_string("file.txt"))?;
+block_on(async {
+    let contents = unblock!(fs::read_to_string("file.txt"))?;
+    println!("{}", contents);
+    io::Result::Ok(())
+});
 ```
 
 Read a file and pipe its contents to stdout:
 
 ```rust
-use blocking::Blocking;
+use blocking::{block_on, Unblock};
 use std::fs::File;
-use std::io::stdout;
+use std::io::{self, stdout};
 
-let input = Blocking::new(File::open("file.txt")?);
-let mut output = Blocking::new(stdout());
+block_on(async {
+    let input = Unblock::new(File::open("file.txt")?);
+    let mut output = Unblock::new(stdout());
 
-futures::io::copy(input, &mut output).await?;
+    futures::io::copy(input, &mut output).await?;
+    io::Result::Ok(())
+});
 ```
 
 Iterate over the contents of a directory:
 
 ```rust
-use blocking::Blocking;
+use blocking::{block_on, Unblock};
 use futures::prelude::*;
-use std::fs;
+use std::{fs, io};
 
-let mut dir = Blocking::new(fs::read_dir(".")?);
+block_on(async {
+    let mut dir = Unblock::new(fs::read_dir(".")?);
+    while let Some(item) = dir.next().await {
+        println!("{}", item?.file_name().to_string_lossy());
+    }
+    io::Result::Ok(())
+});
+```
 
-while let Some(item) = dir.next().await {
-    println!("{}", item?.file_name().to_string_lossy());
-}
+Convert a stream into an iterator:
+
+```rust
+use blocking::BlockOn;
+use futures::stream;
+
+let stream = stream::once(async { 7 });
+let mut iter = BlockOn::new(Box::pin(stream));
+
+assert_eq!(iter.next(), Some(7));
+assert_eq!(iter.next(), None);
 ```
 
 ## License
