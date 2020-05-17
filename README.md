@@ -17,7 +17,7 @@ Block on async code or await blocking code.
 To convert async to blocking, *block on* async code with `block_on()`, `block_on!`, or
 `BlockOn`.
 
-To convert blocking to async, *unblock* blocking code with `unblock()`, [`unblock!`, or
+To convert blocking to async, *unblock* blocking code with `unblock()`, `unblock!`, or
 `Unblock`.
 
 # Thread pool
