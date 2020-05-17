@@ -13,7 +13,9 @@ categories = ["asynchronous", "concurrency"]
 readme = "README.md"
 
 [dependencies]
-futures = { version = "0.3.4", default-features = false, features = ["std"] }
+futures-util = { version = "0.3.5", default-features = false, features = ["std", "sink"] }
+futures-channel = { version = "0.3.5", default-features = false, features = ["std", "sink"] }
+futures-io = { version = "0.3.5", default-features = false, features = ["std"] }
 once_cell = "1.3.1"
 
 [dev-dependencies]
