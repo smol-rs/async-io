@@ -13,7 +13,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest]
-        rust: [nightly, beta, stable]
+        # 1.40.0 is a MSRV
+        rust: [1.40.0, nightly, beta, stable]
     steps:
       - uses: actions/checkout@v2
       
