@@ -10,8 +10,7 @@ use std::env;
 use std::fs;
 use std::io;
 
-use blocking::Unblock;
-use futures::executor::block_on;
+use blocking::{block_on, Unblock};
 use futures::prelude::*;
 
 fn main() -> io::Result<()> {

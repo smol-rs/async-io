@@ -13,10 +13,12 @@ categories = ["asynchronous", "concurrency"]
 readme = "README.md"
 
 [dependencies]
-futures-util = { version = "0.3.5", default-features = false, features = ["std", "sink"] }
 futures-channel = { version = "0.3.5", default-features = false, features = ["std", "sink"] }
 futures-io = { version = "0.3.5", default-features = false, features = ["std"] }
+futures-util = { version = "0.3.5", default-features = false, features = ["std", "sink"] }
 once_cell = "1.3.1"
+parking = "1.0.0"
+waker-fn = "1.0.0"
 
 [dev-dependencies]
-futures = { version = "0.3.4", default-features = false, features = ["executor"] }
+futures = { version = "0.3.4", default-features = false, features = ["std"] }
