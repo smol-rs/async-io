@@ -84,9 +84,12 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
-use futures::channel::{mpsc, oneshot};
-use futures::prelude::*;
-use futures::task::{waker_ref, ArcWake, AtomicWaker};
+use futures_util::task::{ArcWake, waker_ref, AtomicWaker};
+use futures_util::future;
+use futures_util::sink::SinkExt;
+use futures_core::{Stream, Future, ready};
+use futures_io::{AsyncRead, AsyncWrite};
+use futures_channel::{mpsc, oneshot};
 use once_cell::sync::Lazy;
 
 /// Awaits the output of a spawned future.
@@ -466,7 +469,7 @@ impl<T> Unblock<T> {
 
                 State::WithMut(task) => {
                     // Poll the task to wait for it to finish.
-                    let t = futures::ready!(Pin::new(task).poll(cx));
+                    let t = ready!(Pin::new(task).poll(cx));
                     self.0 = State::Idle(Some(t));
                 }
 
@@ -475,7 +478,7 @@ impl<T> Unblock<T> {
                     any.take();
 
                     // Poll the task to wait for it to finish.
-                    futures::ready!(Pin::new(task).poll(cx));
+                    ready!(Pin::new(task).poll(cx));
                     self.0 = State::Idle(None);
                 }
 
@@ -485,7 +488,7 @@ impl<T> Unblock<T> {
                     any.take();
 
                     // Poll the task to retrieve the iterator.
-                    let iter = futures::ready!(Pin::new(task).poll(cx));
+                    let iter = ready!(Pin::new(task).poll(cx));
                     self.0 = State::Idle(Some(iter));
                 }
 
@@ -495,7 +498,7 @@ impl<T> Unblock<T> {
                     reader.take();
 
                     // Poll the task to retrieve the I/O handle.
-                    let (res, io) = futures::ready!(Pin::new(task).poll(cx));
+                    let (res, io) = ready!(Pin::new(task).poll(cx));
                     // Make sure to move into the idle state before reporting errors.
                     self.0 = State::Idle(Some(io));
                     res?;
@@ -508,7 +511,7 @@ impl<T> Unblock<T> {
                     writer.take();
 
                     // Poll the task to retrieve the I/O handle.
-                    let (res, io) = futures::ready!(Pin::new(task).poll(cx));
+                    let (res, io) = ready!(Pin::new(task).poll(cx));
                     // Make sure to move into the idle state before reporting errors.
                     self.0 = State::Idle(Some(io));
                     res?;
@@ -534,7 +537,7 @@ where
                 | State::Reading(..)
                 | State::Writing(..) => {
                     // Wait for the running task to stop.
-                    let _ = futures::ready!(self.poll_stop(cx));
+                    let _ = ready!(self.poll_stop(cx));
                 }
 
                 // If idle, spawn the closure.
@@ -556,7 +559,7 @@ where
                 // If running the closure, await it.
                 State::Closure(any, task) => {
                     // Poll the task to wait for it to finish.
-                    futures::ready!(Pin::new(task).poll(cx));
+                    ready!(Pin::new(task).poll(cx));
 
                     // Extract the receiver.
                     let mut receiver = any
@@ -623,7 +626,7 @@ where
                 | State::Reading(..)
                 | State::Writing(..) => {
                     // Wait for the running task to stop.
-                    let _ = futures::ready!(self.poll_stop(cx));
+                    let _ = ready!(self.poll_stop(cx));
                 }
 
                 // If idle, start a streaming task.
@@ -655,14 +658,14 @@ where
                     let receiver = any.downcast_mut::<mpsc::Receiver<T::Item>>().unwrap();
 
                     // Poll the channel.
-                    let opt = futures::ready!(Pin::new(receiver).poll_next(cx));
+                    let opt = ready!(Pin::new(receiver).poll_next(cx));
 
                     // If the channel is closed, retrieve the iterator back from the blocking task.
                     // This is not really a required step, but it's cleaner to drop the iterator on
                     // the same thread that created it.
                     if opt.is_none() {
                         // Poll the task to retrieve the iterator.
-                        let iter = futures::ready!(Pin::new(task).poll(cx));
+                        let iter = ready!(Pin::new(task).poll(cx));
                         self.0 = State::Idle(Some(iter));
                     }
 
@@ -688,7 +691,7 @@ impl<T: Read + Send + 'static> AsyncRead for Unblock<T> {
                 | State::Streaming(..)
                 | State::Writing(..) => {
                     // Wait for the running task to stop.
-                    futures::ready!(self.poll_stop(cx))?;
+                    ready!(self.poll_stop(cx))?;
                 }
 
                 // If idle, start a reading task.
@@ -721,14 +724,14 @@ impl<T: Read + Send + 'static> AsyncRead for Unblock<T> {
                 // If reading, read bytes from the pipe.
                 State::Reading(Some(reader), task) => {
                     // Poll the pipe.
-                    let n = futures::ready!(reader.drain(cx, buf))?;
+                    let n = ready!(reader.drain(cx, buf))?;
 
                     // If the pipe is closed, retrieve the I/O handle back from the blocking task.
                     // This is not really a required step, but it's cleaner to drop the handle on
                     // the same thread that created it.
                     if n == 0 {
                         // Poll the task to retrieve the I/O handle.
-                        let (res, io) = futures::ready!(Pin::new(task).poll(cx));
+                        let (res, io) = ready!(Pin::new(task).poll(cx));
                         // Make sure to move into the idle state before reporting errors.
                         self.0 = State::Idle(Some(io));
                         res?;
@@ -756,7 +759,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
                 | State::Streaming(..)
                 | State::Reading(..) => {
                     // Wait for the running task to stop.
-                    futures::ready!(self.poll_stop(cx))?;
+                    ready!(self.poll_stop(cx))?;
                 }
 
                 // If idle, start the writing task.
@@ -805,7 +808,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
                 | State::Writing(..)
                 | State::Reading(..) => {
                     // Wait for the running task to stop.
-                    futures::ready!(self.poll_stop(cx))?;
+                    ready!(self.poll_stop(cx))?;
                 }
 
                 // Idle implies flushed.
@@ -816,7 +819,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
 
     fn poll_close(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         // First, make sure the I/O handle is flushed.
-        futures::ready!(Pin::new(&mut *self).poll_flush(cx))?;
+        ready!(Pin::new(&mut *self).poll_flush(cx))?;
 
         // Then move into the idle state with no I/O handle, thus dropping it.
         self.0 = State::Idle(None);
