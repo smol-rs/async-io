@@ -38,6 +38,13 @@ jobs:
           command: check
           args: --all --benches --bins --examples --tests --all-features
 
+      - name: Run cargo check (without dev-dependencies)
+        if: startsWith(matrix.rust, 'nightly')
+        uses: actions-rs/cargo@v1
+        with:
+          command: check
+          args: -Z features=dev_dep --all --benches --bins --examples --tests --all-features
+
       - name: Run cargo test
         uses: actions-rs/cargo@v1
         with:
