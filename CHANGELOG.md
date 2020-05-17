@@ -1,3 +1,11 @@
+# Version 0.4.0
+
+- Remove `Future` impl for `Blocking`.
+- Add `unblock()`.
+- Rename `blocking!` to `unblock!`.
+- Rename `Blocking` to `Unblock`.
+- Add `block_on()`, `block_on!`, and `BlockOn`.
+
 # Version 0.3.2
 
 - Make `Blocking` implement `Send` in more cases.
