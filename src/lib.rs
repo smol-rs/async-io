@@ -280,7 +280,7 @@ impl Executor {
             self.cvar.notify_all();
 
             // Generate a new thread ID.
-            static ID: AtomicUsize = AtomicUsize::new(0);
+            static ID: AtomicUsize = AtomicUsize::new(1);
             let id = ID.fetch_add(1, Ordering::Relaxed);
 
             // Spawn the new thread.
