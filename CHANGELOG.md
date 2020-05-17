@@ -1,3 +1,7 @@
+# Version 0.4.2
+
+- Start thread numbering from 1.
+
 # Version 0.4.1
 
 - Attach names to spawned threads.
