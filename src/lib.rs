@@ -85,9 +85,10 @@ use std::thread;
 use std::time::Duration;
 
 use futures_util::task::{ArcWake, waker_ref, AtomicWaker};
-use futures_util::future;
+use futures_util::future::{self, Future};
 use futures_util::sink::SinkExt;
-use futures_core::{Stream, Future, ready};
+use futures_util::stream::{Stream};
+use futures_util::ready;
 use futures_io::{AsyncRead, AsyncWrite};
 use futures_channel::{mpsc, oneshot};
 use once_cell::sync::Lazy;
