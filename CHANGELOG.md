@@ -1,3 +1,7 @@
+# Version 0.4.1
+
+- Attach names to spawned threads.
+
 # Version 0.4.0
 
 - Remove `Future` impl for `Blocking`.
