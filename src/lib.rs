@@ -279,8 +279,15 @@ impl Executor {
             // Notify all existing idle threads because we need to hurry up.
             self.cvar.notify_all();
 
+            // Generate a new thread ID.
+            static ID: AtomicUsize = AtomicUsize::new(0);
+            let id = ID.fetch_add(1, Ordering::Relaxed);
+
             // Spawn the new thread.
-            thread::spawn(move || self.main_loop());
+            thread::Builder::new()
+                .name(format!("blocking-{}", id))
+                .spawn(move || self.main_loop())
+                .unwrap();
         }
     }
 }
