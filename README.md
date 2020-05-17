@@ -20,7 +20,7 @@ To convert async to blocking, *block on* async code with `block_on()`, `block_on
 To convert blocking to async, *unblock* blocking code with `unblock()`, `unblock!`, or
 `Unblock`.
 
-# Thread pool
+## Thread pool
 
 Sometimes there's no way to avoid blocking I/O in async programs. Consider files or stdin,
 which have weak async support on modern operating systems. While [IOCP], [AIO], and [io_uring]
@@ -38,7 +38,7 @@ next job or shuts down after a certain timeout.
 [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html
 [io_uring]: https://lwn.net/Articles/776703/
 
-# Examples
+## Examples
 
 Await a blocking file read with `unblock!`:
 
