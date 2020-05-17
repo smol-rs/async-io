@@ -33,6 +33,7 @@ jobs:
             override: true
 
       - name: Run cargo check
+        if: !startsWith(matrix.rust, 'nightly')
         uses: actions-rs/cargo@v1
         with:
           command: check
