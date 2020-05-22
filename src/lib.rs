@@ -102,9 +102,8 @@ use std::thread;
 use std::time::Duration;
 
 use futures_channel::{mpsc, oneshot};
-use futures_io::{AsyncRead, AsyncWrite};
 use futures_util::future::{self, Future};
-use futures_util::io::{AsyncReadExt, AsyncWriteExt};
+use futures_util::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use futures_util::sink::SinkExt;
 use futures_util::stream::{Stream, StreamExt};
 use futures_util::task::{waker_ref, ArcWake, AtomicWaker};
