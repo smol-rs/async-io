@@ -105,7 +105,7 @@ use futures_channel::{mpsc, oneshot};
 use futures_util::future::{self, Future};
 use futures_util::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use futures_util::sink::SinkExt;
-use futures_util::stream::{Stream, StreamExt};
+use futures_util::stream::{self, Stream, StreamExt};
 use futures_util::task::{waker_ref, ArcWake, AtomicWaker};
 use futures_util::{pin_mut, ready};
 use once_cell::sync::Lazy;
@@ -859,12 +859,14 @@ where
                     });
 
                     // Move into the busy state and poll again.
-                    self.0 = State::Streaming(Some(Box::new(receiver)), task);
+                    self.0 = State::Streaming(Some(Box::new(receiver.fuse())), task);
                 }
 
                 // If streaming, receive an item.
                 State::Streaming(Some(any), task) => {
-                    let receiver = any.downcast_mut::<mpsc::Receiver<T::Item>>().unwrap();
+                    let receiver = any
+                        .downcast_mut::<stream::Fuse<mpsc::Receiver<T::Item>>>()
+                        .unwrap();
 
                     // Poll the channel.
                     let opt = ready!(Pin::new(receiver).poll_next(cx));
