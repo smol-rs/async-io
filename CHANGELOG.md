@@ -1,3 +1,7 @@
+# Version 0.4.3
+
+- Fix a bug where a closed `Receiver` causes panics.
+
 # Version 0.4.2
 
 - Start thread numbering from 1.

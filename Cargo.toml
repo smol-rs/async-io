@@ -1,6 +1,6 @@
 [package]
 name = "blocking"
-version = "0.4.2"
+version = "0.4.3"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 description = "Block on async code or await blocking code"
