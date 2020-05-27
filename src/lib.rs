@@ -739,8 +739,8 @@ impl<T> Unblock<T> {
                 }
 
                 State::Reading(reader, task) => {
-                    // Drop the reader to close the pipe. This stops the `futures::io::copy`
-                    // operation in the task, after which the task returns the I/O handle back.
+                    // Drop the reader to close the pipe. This stops copying inside the task, after
+                    // which the task returns the I/O handle back.
                     reader.take();
 
                     // Poll the task to retrieve the I/O handle.
@@ -751,9 +751,8 @@ impl<T> Unblock<T> {
                 }
 
                 State::Writing(writer, task) => {
-                    // Drop the writer to close the pipe. This stops the `futures::io::copy`
-                    // operation in the task, after which the task flushes the I/O handle and
-                    // returns it back.
+                    // Drop the writer to close the pipe. This stops copying inside the task, after
+                    // which the task flushes the I/O handle and
                     writer.take();
 
                     // Poll the task to retrieve the I/O handle.
