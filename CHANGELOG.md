@@ -1,3 +1,7 @@
+# Version 0.4.4
+
+- Remove the initial poll in block_on that caused lost wakeups.
+
 # Version 0.4.3
 
 - Fix a bug where a closed `Receiver` causes panics.
