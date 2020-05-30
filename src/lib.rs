@@ -308,12 +308,6 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
     // Pin the future on the stack.
     pin_mut!(future);
 
-    // A quick initial poll with no waker.
-    let cx = &mut Context::from_waker(futures_util::task::noop_waker_ref());
-    if let Poll::Ready(output) = future.as_mut().poll(cx) {
-        return output;
-    }
-
     // Creates a parker and an associated waker that unparks it.
     fn parker_and_waker() -> (Parker, Waker) {
         let parker = Parker::new();
