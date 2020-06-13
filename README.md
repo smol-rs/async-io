@@ -9,8 +9,6 @@ https://github.com/stjepang/blocking)
 https://crates.io/crates/blocking)
 [![Documentation](https://docs.rs/blocking/badge.svg)](
 https://docs.rs/blocking)
-[![Chat](https://img.shields.io/discord/701824908866617385.svg?logo=discord)](
-https://discord.gg/x6m5Vvt)
 
 Block on async code or await blocking code.
 
