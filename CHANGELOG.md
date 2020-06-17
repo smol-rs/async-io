@@ -1,3 +1,7 @@
+# Version 0.4.6
+
+- Update doc comment on `Unblock`.
+
 # Version 0.4.5
 
 - Implement `AsyncSeek`/`Seek` for `Unblock`/`BlockOn`.
