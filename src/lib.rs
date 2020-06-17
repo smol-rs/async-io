@@ -575,8 +575,8 @@ macro_rules! unblock {
 /// Blocking I/O must be isolated from async code. This type moves blocking operations onto a
 /// special thread pool while exposing a familiar async interface.
 ///
-/// This type implements traits [`Stream`], [`AsyncRead`], or [`AsyncWrite`] if the inner type
-/// implements [`Iterator`], [`Read`], or [`Write`], respectively.
+/// This type implements traits [`Stream`], [`AsyncRead`], [`AsyncWrite`], or [`AsyncSeek`] if the
+/// inner type implements [`Iterator`], [`Read`], [`Write`], or [`Seek`], respectively.
 ///
 /// If writing data through the [`AsyncWrite`] trait, make sure to flush before dropping the
 /// [`Unblock`] handle or some buffered data might get lost.
