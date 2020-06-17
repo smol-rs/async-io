@@ -1,3 +1,7 @@
+# Version 0.4.5
+
+- Implement `AsyncSeek`/`Seek` for `Unblock`/`BlockOn`.
+
 # Version 0.4.4
 
 - Remove the initial poll in block_on that caused lost wakeups.
