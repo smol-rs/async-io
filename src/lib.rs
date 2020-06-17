@@ -842,7 +842,7 @@ enum State<T> {
     /// The inner value is a [`Write`] currently writing in a task.
     Writing(Option<Writer>, Task<(io::Result<()>, Box<T>)>),
 
-    /// THe inner value is a [`Seek`] currently seeking in a task.
+    /// The inner value is a [`Seek`] currently seeking in a task.
     Seeking(Task<(SeekFrom, io::Result<u64>, Box<T>)>),
 }
 
