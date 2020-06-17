@@ -90,7 +90,7 @@ use std::any::Any;
 use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt;
-use std::io::{self, Read, Write};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::mem;
 use std::panic;
 use std::pin::Pin;
@@ -103,7 +103,9 @@ use std::time::Duration;
 
 use futures_channel::{mpsc, oneshot};
 use futures_util::future::{self, Future};
-use futures_util::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
+use futures_util::io::{
+    AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt,
+};
 use futures_util::sink::SinkExt;
 use futures_util::stream::{self, Stream, StreamExt};
 use futures_util::task::{waker_ref, ArcWake, AtomicWaker};
@@ -383,8 +385,8 @@ macro_rules! block_on {
 /// all the time becomes too tedious, use this type for more convenient blocking on async I/O
 /// operations.
 ///
-/// This type implements traits [`Iterator`], [`Read`], or [`Write`] if the inner type implements
-/// [`Stream`], [`AsyncRead`], or [`AsyncWrite`], respectively.
+/// This type implements traits [`Iterator`], [`Read`], [`Write`], or [`Seek`] if the inner type
+/// implements [`Stream`], [`AsyncRead`], [`AsyncWrite`], or [`AsyncSeek`], respectively.
 ///
 /// If writing data through the [`Write`] trait, make sure to flush before dropping the [`BlockOn`]
 /// handle or some buffered data might get lost.
@@ -487,6 +489,12 @@ impl<T: AsyncWrite + Unpin> Write for BlockOn<T> {
 
     fn flush(&mut self) -> io::Result<()> {
         block_on(self.0.flush())
+    }
+}
+
+impl<T: AsyncSeek + Unpin> Seek for BlockOn<T> {
+    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
+        block_on(self.0.seek(pos))
     }
 }
 
@@ -626,7 +634,11 @@ impl<T> Unblock<T> {
         // Assume idle state and get a reference to the inner value.
         match &mut self.0 {
             State::Idle(t) => t.as_mut().expect("inner value was taken out"),
-            State::WithMut(..) | State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
+            State::WithMut(..)
+            | State::Streaming(..)
+            | State::Reading(..)
+            | State::Writing(..)
+            | State::Seeking(..) => {
                 unreachable!("when stopped, the state machine must be in idle state");
             }
         }
@@ -657,7 +669,11 @@ impl<T> Unblock<T> {
         // Assume idle state and take out the inner value.
         let mut t = match &mut self.0 {
             State::Idle(t) => t.take().expect("inner value was taken out"),
-            State::WithMut(..) | State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
+            State::WithMut(..)
+            | State::Streaming(..)
+            | State::Reading(..)
+            | State::Writing(..)
+            | State::Seeking(..) => {
                 unreachable!("when stopped, the state machine must be in idle state");
             }
         };
@@ -702,7 +718,11 @@ impl<T> Unblock<T> {
         // Assume idle state and extract the inner value.
         match &mut this.0 {
             State::Idle(t) => *t.take().expect("inner value was taken out"),
-            State::WithMut(..) | State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
+            State::WithMut(..)
+            | State::Streaming(..)
+            | State::Reading(..)
+            | State::Writing(..)
+            | State::Seeking(..) => {
                 unreachable!("when stopped, the state machine must be in idle state");
             }
         }
@@ -718,8 +738,8 @@ impl<T> Unblock<T> {
 
                 State::WithMut(task) => {
                     // Poll the task to wait for it to finish.
-                    let t = ready!(Pin::new(task).poll(cx));
-                    self.0 = State::Idle(Some(t));
+                    let io = ready!(Pin::new(task).poll(cx));
+                    self.0 = State::Idle(Some(io));
                 }
 
                 State::Streaming(any, task) => {
@@ -755,6 +775,14 @@ impl<T> Unblock<T> {
                     self.0 = State::Idle(Some(io));
                     res?;
                 }
+
+                State::Seeking(task) => {
+                    // Poll the task to wait for it to finish.
+                    let (_, res, io) = ready!(Pin::new(task).poll(cx));
+                    // Make sure to move into the idle state before reporting errors.
+                    self.0 = State::Idle(Some(io));
+                    res?;
+                }
             }
         }
     }
@@ -782,9 +810,11 @@ impl<T: fmt::Debug> fmt::Debug for Unblock<T> {
                 let io: &T = &*io;
                 f.debug_struct("Unblock").field("io", io).finish()
             }
-            State::WithMut(..) | State::Streaming(..) | State::Reading(..) | State::Writing(..) => {
-                f.debug_struct("Unblock").field("io", &Blocked).finish()
-            }
+            State::WithMut(..)
+            | State::Streaming(..)
+            | State::Reading(..)
+            | State::Writing(..)
+            | State::Seeking(..) => f.debug_struct("Unblock").field("io", &Blocked).finish(),
         }
     }
 }
@@ -811,6 +841,9 @@ enum State<T> {
 
     /// The inner value is a [`Write`] currently writing in a task.
     Writing(Option<Writer>, Task<(io::Result<()>, Box<T>)>),
+
+    /// THe inner value is a [`Seek`] currently seeking in a task.
+    Seeking(Task<(SeekFrom, io::Result<u64>, Box<T>)>),
 }
 
 impl<T: Iterator + Send + 'static> Stream for Unblock<T>
@@ -826,7 +859,8 @@ where
                 State::WithMut(..)
                 | State::Streaming(None, _)
                 | State::Reading(..)
-                | State::Writing(..) => {
+                | State::Writing(..)
+                | State::Seeking(..) => {
                     // Wait for the running task to stop.
                     let _ = ready!(self.poll_stop(cx));
                 }
@@ -892,7 +926,8 @@ impl<T: Read + Send + 'static> AsyncRead for Unblock<T> {
                 State::WithMut(..)
                 | State::Reading(None, _)
                 | State::Streaming(..)
-                | State::Writing(..) => {
+                | State::Writing(..)
+                | State::Seeking(..) => {
                     // Wait for the running task to stop.
                     ready!(self.poll_stop(cx))?;
                 }
@@ -959,7 +994,8 @@ impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
                 State::WithMut(..)
                 | State::Writing(None, _)
                 | State::Streaming(..)
-                | State::Reading(..) => {
+                | State::Reading(..)
+                | State::Seeking(..) => {
                     // Wait for the running task to stop.
                     ready!(self.poll_stop(cx))?;
                 }
@@ -1007,7 +1043,8 @@ impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
                 State::WithMut(..)
                 | State::Streaming(..)
                 | State::Writing(..)
-                | State::Reading(..) => {
+                | State::Reading(..)
+                | State::Seeking(..) => {
                     // Wait for the running task to stop.
                     ready!(self.poll_stop(cx))?;
                 }
@@ -1025,6 +1062,51 @@ impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
         // Then move into the idle state with no I/O handle, thus dropping it.
         self.0 = State::Idle(None);
         Poll::Ready(Ok(()))
+    }
+}
+
+impl<T: Seek + Send + 'static> AsyncSeek for Unblock<T> {
+    fn poll_seek(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        pos: SeekFrom,
+    ) -> Poll<io::Result<u64>> {
+        loop {
+            match &mut self.0 {
+                // If not in idle state, stop the running task.
+                State::WithMut(..)
+                | State::Streaming(..)
+                | State::Reading(..)
+                | State::Writing(..) => {
+                    // Wait for the running task to stop.
+                    ready!(self.poll_stop(cx))?;
+                }
+
+                State::Idle(io) => {
+                    // Take the I/O handle out to seek on a blocking task.
+                    let mut io = io.take().expect("inner value was taken out");
+
+                    let task = Executor::spawn(async move {
+                        let res = io.seek(pos);
+                        (pos, res, io)
+                    });
+                    self.0 = State::Seeking(task);
+                }
+
+                State::Seeking(task) => {
+                    // Poll the task to wait for it to finish.
+                    let (original_pos, res, io) = ready!(Pin::new(task).poll(cx));
+                    // Make sure to move into the idle state before reporting errors.
+                    self.0 = State::Idle(Some(io));
+                    let current = res?;
+
+                    // If the `pos` argument matches the original one, return the result.
+                    if original_pos == pos {
+                        return Poll::Ready(Ok(current));
+                    }
+                }
+            }
+        }
     }
 }
 
