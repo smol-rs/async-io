@@ -1429,8 +1429,8 @@ impl Writer {
             let n = src.read(pipe_slice_mut)?;
             count += n;
 
-            // If the pipe is full or `src` is empty, return.
-            if n == 0 {
+            // If the pipe is full or closed, or `src` is empty, return.
+            if n == 0 || self.inner.closed.load(Ordering::Relaxed) {
                 return Poll::Ready(Ok(count));
             }
 
