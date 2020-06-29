@@ -37,11 +37,11 @@ fn spawn<T: Send + 'static>(
 #[test]
 fn tcp_connect() -> io::Result<()> {
     block_on(async {
-        let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+        let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
         let addr = listener.get_ref().local_addr()?;
         let task = spawn(async move { listener.accept().await });
 
-        let stream2 = Async::<TcpStream>::connect(&addr).await?;
+        let stream2 = Async::<TcpStream>::connect(addr).await?;
         let stream1 = task.await?.0;
 
         assert_eq!(
@@ -54,7 +54,7 @@ fn tcp_connect() -> io::Result<()> {
         );
 
         // Now that the listener is closed, connect should fail.
-        let err = Async::<TcpStream>::connect(&addr).await.unwrap_err();
+        let err = Async::<TcpStream>::connect(addr).await.unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::ConnectionRefused);
 
         Ok(())
@@ -64,7 +64,7 @@ fn tcp_connect() -> io::Result<()> {
 #[test]
 fn tcp_peek_read() -> io::Result<()> {
     block_on(async {
-        let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+        let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
         let addr = listener.get_ref().local_addr()?;
 
         let mut stream = Async::<TcpStream>::connect(addr).await?;
@@ -86,15 +86,15 @@ fn tcp_peek_read() -> io::Result<()> {
 #[test]
 fn tcp_reader_hangup() -> io::Result<()> {
     block_on(async {
-        let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+        let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
         let addr = listener.get_ref().local_addr()?;
         let task = spawn(async move { listener.accept().await });
 
-        let mut stream2 = Async::<TcpStream>::connect(&addr).await?;
+        let mut stream2 = Async::<TcpStream>::connect(addr).await?;
         let stream1 = task.await?.0;
 
         let task = spawn(async move {
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::new(Duration::from_secs(1)).await;
             drop(stream1);
         });
 
@@ -108,15 +108,15 @@ fn tcp_reader_hangup() -> io::Result<()> {
 #[test]
 fn tcp_writer_hangup() -> io::Result<()> {
     block_on(async {
-        let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+        let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
         let addr = listener.get_ref().local_addr()?;
         let task = spawn(async move { listener.accept().await });
 
-        let mut stream2 = Async::<TcpStream>::connect(&addr).await?;
+        let mut stream2 = Async::<TcpStream>::connect(addr).await?;
         let stream1 = task.await?.0;
 
         let task = spawn(async move {
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::new(Duration::from_secs(1)).await;
             drop(stream1);
         });
 
@@ -132,8 +132,8 @@ fn tcp_writer_hangup() -> io::Result<()> {
 #[test]
 fn udp_send_recv() -> io::Result<()> {
     block_on(async {
-        let socket1 = Async::<UdpSocket>::bind("127.0.0.1:0")?;
-        let socket2 = Async::<UdpSocket>::bind("127.0.0.1:0")?;
+        let socket1 = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
+        let socket2 = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
         socket1.get_ref().connect(socket2.get_ref().local_addr()?)?;
 
         let mut buf = [0u8; 1024];
@@ -252,7 +252,7 @@ fn uds_reader_hangup() -> io::Result<()> {
         let (socket1, mut socket2) = Async::<UnixStream>::pair()?;
 
         let task = spawn(async move {
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::new(Duration::from_secs(1)).await;
             drop(socket1);
         });
 
@@ -270,7 +270,7 @@ fn uds_writer_hangup() -> io::Result<()> {
         let (socket1, mut socket2) = Async::<UnixStream>::pair()?;
 
         let task = spawn(async move {
-            Timer::after(Duration::from_secs(1)).await;
+            Timer::new(Duration::from_secs(1)).await;
             drop(socket1);
         });
 
@@ -283,16 +283,16 @@ fn uds_writer_hangup() -> io::Result<()> {
     })
 }
 
-// Test that we correctly re-register interests when we are previously
+// Test that we correctly re-register interests after we've previously been
 // interested in both readable and writable events and then we get only one of
-// them. (we need to re-register interest on the other.)
+// those (we need to re-register interest on the other).
 #[test]
 fn tcp_duplex() -> io::Result<()> {
     block_on(async {
-        let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
-        let stream0 =
+        let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+        let stream1 =
             Arc::new(Async::<TcpStream>::connect(listener.get_ref().local_addr()?).await?);
-        let stream1 = Arc::new(listener.accept().await?.0);
+        let stream2 = Arc::new(listener.accept().await?.0);
 
         async fn do_read(s: Arc<Async<TcpStream>>) -> io::Result<()> {
             let mut buf = vec![0u8; 4096];
@@ -313,26 +313,26 @@ fn tcp_duplex() -> io::Result<()> {
             Ok(())
         }
 
-        // Read from and write to stream0.
-        let r0 = spawn(do_read(stream0.clone()));
-        let w0 = spawn(do_write(stream0));
-
-        // Sleep a bit, so that reading and writing are both blocked.
-        Timer::after(Duration::from_millis(5)).await;
-
-        // Start reading stream1, make stream0 writable.
+        // Read from and write to stream1.
         let r1 = spawn(do_read(stream1.clone()));
-
-        // Finish writing to stream0.
-        w0.await?;
-        r1.await?;
-
-        // Start writing to stream1, make stream0 readable.
         let w1 = spawn(do_write(stream1));
 
-        // Will r0 be correctly woken?
-        r0.await?;
+        // Sleep a bit, so that reading and writing are both blocked.
+        Timer::new(Duration::from_millis(5)).await;
+
+        // Start reading stream2, make stream1 writable.
+        let r2 = spawn(do_read(stream2.clone()));
+
+        // Finish writing to stream1.
         w1.await?;
+        r2.await?;
+
+        // Start writing to stream2, make stream1 readable.
+        let w2 = spawn(do_write(stream2));
+
+        // Will r1 be correctly woken?
+        r1.await?;
+        w2.await?;
 
         Ok(())
     })

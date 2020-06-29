@@ -26,6 +26,7 @@ use std::mem;
 use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawSocket;
+use std::panic;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::task::{Poll, Waker};
@@ -38,6 +39,19 @@ use once_cell::sync::Lazy;
 use slab::Slab;
 
 static PARKER_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Creates a parker and an associated unparker.
+///
+/// # Examples
+///
+/// ```
+/// let (p, u) = parking::pair();
+/// ```
+pub fn pair() -> (Parker, Unparker) {
+    let p = Parker::new();
+    let u = p.unparker();
+    (p, u)
+}
 
 /// Parks a thread.
 pub struct Parker {
@@ -606,7 +620,8 @@ impl ReactorLock<'_> {
 
         // Wake up ready tasks.
         for waker in wakers {
-            waker.wake();
+            // Don't let a panicking waker blow everything up.
+            let _ = panic::catch_unwind(|| waker.wake());
         }
 
         res

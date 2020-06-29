@@ -1,7 +1,27 @@
+//! Async I/O and timers.
+//!
+//! # Implementation
+//!
+//! To wait for the next I/O event, the reactor calls [epoll] on Linux/Android, [kqueue] on
+//! macOS/iOS/BSD, and [wepoll] on Windows.
+//!
+//! The [`Async`] type registers I/O handles in the reactor and is able to convert their blocking
+//! operations into async operations.
+//!
+//! The [`Timer`] type registers timers in the reactor that will fire at the chosen points in
+//! time.
+//!
+//! [epoll]: https://en.wikipedia.org/wiki/Epoll
+//! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+//! [wepoll]: https://github.com/piscisaureus/wepoll
+
+// TODO: change 8000/9000 ports to 0 (except when it's really no_run)
+// TODO: remove no_run
+
 use std::fmt::Debug;
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
+use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 #[cfg(windows)]
 use std::os::windows::io::{AsRawSocket, RawSocket};
 use std::pin::Pin;
@@ -38,43 +58,12 @@ mod sys;
 /// use std::time::Duration;
 ///
 /// async fn sleep(dur: Duration) {
-///     Timer::after(dur).await;
+///     Timer::new(dur).await;
 /// }
 ///
 /// # blocking::block_on(async {
 /// sleep(Duration::from_secs(1)).await;
 /// # });
-/// ```
-///
-/// Set a timeout on an I/O operation:
-///
-/// ```
-/// use async_io::Timer;
-/// use blocking::Unblock;
-/// use futures::future::Either;
-/// use futures::io::{self, BufReader};
-/// use futures::prelude::*;
-/// use std::time::Duration;
-///
-/// async fn timeout<T>(
-///     dur: Duration,
-///     f: impl Future<Output = io::Result<T>>,
-/// ) -> io::Result<T> {
-///     futures::pin_mut!(f);
-///     match future::select(f, Timer::after(dur)).await {
-///         Either::Left((out, _)) => out,
-///         Either::Right(_) => Err(io::ErrorKind::TimedOut.into()),
-///     }
-/// }
-///
-/// # blocking::block_on(async {
-/// // Create a buffered stdin reader.
-/// let mut stdin = BufReader::new(Unblock::new(std::io::stdin()));
-///
-/// // Read a line within 5 seconds.
-/// let mut line = String::new();
-/// timeout(Duration::from_secs(5), stdin.read_line(&mut line)).await?;
-/// # io::Result::Ok(()) });
 /// ```
 #[derive(Debug)]
 pub struct Timer {
@@ -97,30 +86,14 @@ impl Timer {
     /// use std::time::Duration;
     ///
     /// # blocking::block_on(async {
-    /// Timer::after(Duration::from_secs(1)).await;
+    /// Timer::new(Duration::from_secs(1)).await;
     /// # });
     /// ```
-    pub fn after(dur: Duration) -> Timer {
-        Timer::at(Instant::now() + dur)
-    }
-
-    /// Fires at the specified instant in time.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use async_io::Timer;
-    /// use std::time::{Duration, Instant};
-    ///
-    /// # blocking::block_on(async {
-    /// let now = Instant::now();
-    /// let when = now + Duration::from_secs(1);
-    /// Timer::at(when).await;
-    /// # });
-    /// ```
-    pub fn at(when: Instant) -> Timer {
-        let id = None;
-        Timer { id, when }
+    pub fn new(dur: Duration) -> Timer {
+        Timer {
+            id: None,
+            when: Instant::now() + dur,
+        }
     }
 }
 
@@ -159,13 +132,13 @@ impl Future for Timer {
 /// This type converts a blocking I/O type into an async type, provided it is supported by
 /// [epoll]/[kqueue]/[wepoll].
 ///
-/// I/O operations can then be *asyncified* by methods [`Async::with()`] and [`Async::with_mut()`],
-/// or you can use the predefined async methods on the standard networking types.
+/// You can use predefined async methods on the standard networking types, or wrap blocking I/O
+/// operations in [`Async::read_with()`], [`Async::read_with_mut()`], [`Async::write_with()`], and
+/// [`Async::write_with_mut()`].
 ///
 /// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
 /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-/// supported. Use [`reader()`][`crate::reader()`] and [`writer()`][`crate::writer()`] functions
-/// instead to read/write on a thread.
+/// supported. Use the [`blocking`](https://docs.rs/blocking) crate instead.
 ///
 /// # Examples
 ///
@@ -178,7 +151,7 @@ impl Future for Timer {
 ///
 /// # blocking::block_on(async {
 /// // Connect to a local server.
-/// let stream = Async::<TcpStream>::connect("127.0.0.1:8000").await?;
+/// let stream = Async::<TcpStream>::connect(([127, 0, 0, 1], 8000)).await?;
 ///
 /// // Create two handles to the stream.
 /// let reader = Arc::new(stream);
@@ -212,7 +185,7 @@ impl Future for Timer {
 /// }
 ///
 /// // Connect to a local server and echo its messages back.
-/// let stream = Async::<TcpStream>::connect("127.0.0.1:8000").await?;
+/// let stream = Async::<TcpStream>::connect(([127, 0, 0, 1], 8000)).await?;
 /// echo(stream).await?;
 /// # std::io::Result::Ok(()) });
 /// ```
@@ -241,14 +214,12 @@ impl<T: AsRawFd> Async<T> {
     ///
     /// If the handle implements [`Read`] and [`Write`], then `Async<T>` automatically
     /// implements [`AsyncRead`] and [`AsyncWrite`].
-    /// Other I/O operations can be *asyncified* by methods [`Async::with()`] and
-    /// [`Async::with_mut()`].
+    /// Other I/O operations can be *asyncified* by methods [`Async::read_with()`],
+    /// [`Async::read_with_mut()`], [`Async::write_with()`], and [`Async::write_with_mut()`].
     ///
     /// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
     /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-    /// supported by [epoll]/[kqueue]/[wepoll].
-    /// Use [`reader()`][`crate::reader()`] and [`writer()`][`crate::writer()`] functions instead
-    /// to read/write on a thread.
+    /// supported. Use the [`blocking`](https://docs.rs/blocking) crate instead.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -258,10 +229,10 @@ impl<T: AsRawFd> Async<T> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use std::net::TcpListener;
+    /// use std::net::{SocketAddr, TcpListener};
     ///
     /// # blocking::block_on(async {
-    /// let listener = TcpListener::bind("127.0.0.1:0")?;
+    /// let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
     /// let listener = Async::new(listener)?;
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -291,14 +262,12 @@ impl<T: AsRawSocket> Async<T> {
     ///
     /// If the handle implements [`Read`] and [`Write`], then `Async<T>` automatically
     /// implements [`AsyncRead`] and [`AsyncWrite`].
-    /// Other I/O operations can be *asyncified* by methods [`Async::with()`] and
-    /// [`Async::with_mut()`].
+    /// Other I/O operations can be *asyncified* by methods [`Async::read_with()`],
+    /// [`Async::read_with_mut()`], [`Async::write_with()`], and [`Async::write_with_mut()`].
     ///
     /// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
     /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-    /// supported by epoll/kqueue/wepoll.
-    /// Use [`reader()`][`crate::reader()`] and [`writer()`][`crate::writer()`] functions instead
-    /// to read/write on a thread.
+    /// supported. Use the [`blocking`](https://docs.rs/blocking) crate instead.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -311,7 +280,7 @@ impl<T: AsRawSocket> Async<T> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = TcpListener::bind("127.0.0.1:0")?;
+    /// let listener = TcpListener::bind(([127, 0, 0, 1], 0))?;
     /// let listener = Async::new(listener)?;
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -340,7 +309,7 @@ impl<T> Async<T> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     /// let inner = listener.get_ref();
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -357,7 +326,7 @@ impl<T> Async<T> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let mut listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     /// let inner = listener.get_mut();
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -374,7 +343,7 @@ impl<T> Async<T> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     /// let inner = listener.into_inner()?;
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -395,7 +364,7 @@ impl<T> Async<T> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let mut listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     ///
     /// // Wait until a client can be accepted.
     /// listener.readable().await?;
@@ -413,10 +382,11 @@ impl<T> Async<T> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use std::net::TcpStream;
+    /// use std::net::{TcpStream, ToSocketAddrs};
     ///
     /// # blocking::block_on(async {
-    /// let stream = Async::<TcpStream>::connect("example.com:80").await?;
+    /// let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
+    /// let stream = Async::<TcpStream>::connect(addr).await?;
     ///
     /// // Wait until the stream is writable.
     /// stream.writable().await?;
@@ -442,7 +412,7 @@ impl<T> Async<T> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     ///
     /// // Accept a new client asynchronously.
     /// let (stream, addr) = listener.read_with(|l| l.accept()).await?;
@@ -477,7 +447,7 @@ impl<T> Async<T> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let mut listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     ///
     /// // Accept a new client asynchronously.
     /// let (stream, addr) = listener.read_with_mut(|l| l.accept()).await?;
@@ -515,8 +485,8 @@ impl<T> Async<T> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
-    /// socket.get_ref().connect("127.0.0.1:8000")?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
+    /// socket.get_ref().connect("127.0.0.1:9000")?;
     ///
     /// let msg = b"hello";
     /// let len = socket.write_with(|s| s.send(msg)).await?;
@@ -551,8 +521,8 @@ impl<T> Async<T> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let mut socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
-    /// socket.get_ref().connect("127.0.0.1:8000")?;
+    /// let mut socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 9000))?;
+    /// socket.get_ref().connect("127.0.0.1:9000")?;
     ///
     /// let msg = b"hello";
     /// let len = socket.write_with_mut(|s| s.send(msg)).await?;
@@ -693,15 +663,12 @@ impl Async<TcpListener> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     /// println!("Listening on {}", listener.get_ref().local_addr()?);
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub fn bind<A: ToString>(addr: A) -> io::Result<Async<TcpListener>> {
-        let addr = addr
-            .to_string()
-            .parse::<SocketAddr>()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    pub fn bind<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<TcpListener>> {
+        let addr = addr.into();
         Ok(Async::new(TcpListener::bind(addr)?)?)
     }
 
@@ -717,7 +684,7 @@ impl Async<TcpListener> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 8000))?;
     /// let (stream, addr) = listener.accept().await?;
     /// println!("Accepted client: {}", addr);
     /// # std::io::Result::Ok(()) });
@@ -739,7 +706,7 @@ impl Async<TcpListener> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = Async::<TcpListener>::bind("127.0.0.1:0")?;
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     /// let mut incoming = listener.incoming();
     ///
     /// while let Some(stream) = incoming.next().await {
@@ -763,20 +730,15 @@ impl Async<TcpStream> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use std::net::TcpStream;
+    /// use std::net::{TcpStream, ToSocketAddrs};
     ///
     /// # blocking::block_on(async {
-    /// let stream = Async::<TcpStream>::connect("example.com:80").await?;
+    /// let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
+    /// let stream = Async::<TcpStream>::connect(addr).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub async fn connect<A: ToString>(addr: A) -> io::Result<Async<TcpStream>> {
-        let addr = addr.to_string();
-        let addr = blocking::unblock(move || {
-            addr.to_socket_addrs()?.next().ok_or_else(|| {
-                io::Error::new(io::ErrorKind::InvalidInput, "could not resolve the address")
-            })
-        })
-        .await?;
+    pub async fn connect<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<TcpStream>> {
+        let addr = addr.into();
 
         // Create a socket.
         let domain = if addr.is_ipv6() {
@@ -822,10 +784,11 @@ impl Async<TcpStream> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use std::net::TcpStream;
+    /// use std::net::{TcpStream, ToSocketAddrs};
     ///
     /// # blocking::block_on(async {
-    /// let stream = Async::<TcpStream>::connect("127.0.0.1:8080").await?;
+    /// let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
+    /// let stream = Async::<TcpStream>::connect(addr).await?;
     ///
     /// let mut buf = [0u8; 1024];
     /// let len = stream.peek(&mut buf).await?;
@@ -848,15 +811,12 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
     /// println!("Bound to {}", socket.get_ref().local_addr()?);
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub fn bind<A: ToString>(addr: A) -> io::Result<Async<UdpSocket>> {
-        let addr = addr
-            .to_string()
-            .parse::<SocketAddr>()
-            .map_err(|e| io::Error::new(io::ErrorKind::InvalidInput, e))?;
+    pub fn bind<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<UdpSocket>> {
+        let addr = addr.into();
         Ok(Async::new(UdpSocket::bind(addr)?)?)
     }
 
@@ -874,7 +834,7 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
     ///
     /// let mut buf = [0u8; 1024];
     /// let (len, addr) = socket.recv_from(&mut buf).await?;
@@ -898,7 +858,7 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
     ///
     /// let mut buf = [0u8; 1024];
     /// let (len, addr) = socket.peek_from(&mut buf).await?;
@@ -919,10 +879,10 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
+    /// let addr = socket.get_ref().local_addr()?;
     ///
     /// let msg = b"hello";
-    /// let addr = ([127, 0, 0, 1], 8000);
     /// let len = socket.send_to(msg, addr).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -948,8 +908,8 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
-    /// socket.get_ref().connect("127.0.0.1:8000")?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
+    /// socket.get_ref().connect("127.0.0.1:8000")?; // TODO this doesn't seem right
     ///
     /// let mut buf = [0u8; 1024];
     /// let len = socket.recv(&mut buf).await?;
@@ -977,8 +937,8 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
-    /// socket.get_ref().connect("127.0.0.1:8000")?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
+    /// socket.get_ref().connect("127.0.0.1:9000")?;
     ///
     /// let mut buf = [0u8; 1024];
     /// let len = socket.peek(&mut buf).await?;
@@ -1002,8 +962,8 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind("127.0.0.1:9000")?;
-    /// socket.get_ref().connect("127.0.0.1:8000")?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
+    /// socket.get_ref().connect("127.0.0.1:9000")?;
     ///
     /// let msg = b"hello";
     /// let len = socket.send(msg).await?;
@@ -1068,7 +1028,7 @@ impl Async<UnixListener> {
     /// use std::os::unix::net::UnixListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = Async::<UnixListener>::bind("127.0.0.1:0")?;
+    /// let listener = Async::<UnixListener>::bind("/tmp/socket")?;
     /// let mut incoming = listener.incoming();
     ///
     /// while let Some(stream) = incoming.next().await {
