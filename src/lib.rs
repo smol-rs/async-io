@@ -269,10 +269,10 @@ impl<T: AsRawSocket> Async<T> {
     ///
     /// ```
     /// use async_io::Async;
-    /// use std::net::TcpListener;
+    /// use std::net::{SocketAddr, TcpListener};
     ///
     /// # blocking::block_on(async {
-    /// let listener = TcpListener::bind(([127, 0, 0, 1], 0))?;
+    /// let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
     /// let listener = Async::new(listener)?;
     /// # std::io::Result::Ok(()) });
     /// ```
