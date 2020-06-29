@@ -15,9 +15,6 @@
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 //! [wepoll]: https://github.com/piscisaureus/wepoll
 
-// TODO: change 8000/9000 ports to 0 (except when it's really no_run)
-// TODO: remove no_run
-
 use std::fmt::Debug;
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
@@ -138,11 +135,13 @@ impl Future for Timer {
 ///
 /// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
 /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-/// supported. Use the [`blocking`](https://docs.rs/blocking) crate instead.
+/// supported. Wrap them in
+/// [`blocking::Unblock`](https://docs.rs/blocking/*/blocking/struct.Unblock.html) instead.
 ///
 /// # Examples
 ///
-/// To make an async I/O handle cloneable, wrap it in [async-dup]'s `Arc`:
+/// To make an async I/O handle cloneable, wrap it in
+/// [`async_dup::Arc`](https://docs.rs/async-dup/1/async_dup/struct.Arc.html):
 ///
 /// ```no_run
 /// use async_dup::Arc;
@@ -163,7 +162,7 @@ impl Future for Timer {
 /// ```
 ///
 /// If a type does but its reference doesn't implement [`AsyncRead`] and [`AsyncWrite`], wrap it in
-/// [async-dup]'s `Mutex`:
+/// [`async_dup::Mutex`](https://docs.rs/async-dup/1/async_dup/struct.Mutex.html):
 ///
 /// ```no_run
 /// use async_dup::{Arc, Mutex};
@@ -190,7 +189,6 @@ impl Future for Timer {
 /// # std::io::Result::Ok(()) });
 /// ```
 ///
-/// [async-dup]: https://docs.rs/async-dup
 /// [epoll]: https://en.wikipedia.org/wiki/Epoll
 /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 /// [wepoll]: https://github.com/piscisaureus/wepoll
@@ -219,7 +217,8 @@ impl<T: AsRawFd> Async<T> {
     ///
     /// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
     /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-    /// supported. Use the [`blocking`](https://docs.rs/blocking) crate instead.
+    /// supported. Wrap them in
+    /// [`blocking::Unblock`](https://docs.rs/blocking/*/blocking/struct.Unblock.html) instead.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -227,7 +226,7 @@ impl<T: AsRawFd> Async<T> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use async_io::Async;
     /// use std::net::{SocketAddr, TcpListener};
     ///
@@ -267,7 +266,8 @@ impl<T: AsRawSocket> Async<T> {
     ///
     /// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
     /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-    /// supported. Use the [`blocking`](https://docs.rs/blocking) crate instead.
+    /// supported. Wrap them in
+    /// [`blocking::Unblock`](https://docs.rs/blocking/*/blocking/struct.Unblock.html) instead.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -275,7 +275,7 @@ impl<T: AsRawSocket> Async<T> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use async_io::Async;
     /// use std::net::TcpListener;
     ///
@@ -380,7 +380,7 @@ impl<T> Async<T> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use async_io::Async;
     /// use std::net::{TcpStream, ToSocketAddrs};
     ///
@@ -521,7 +521,7 @@ impl<T> Async<T> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let mut socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 9000))?;
+    /// let mut socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
     /// socket.get_ref().connect("127.0.0.1:9000")?;
     ///
     /// let msg = b"hello";
@@ -658,7 +658,7 @@ impl Async<TcpListener> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use async_io::Async;
     /// use std::net::TcpListener;
     ///
@@ -696,7 +696,7 @@ impl Async<TcpListener> {
 
     /// Returns a stream of incoming TCP connections.
     ///
-    /// The stream is infinite, i.e. it never stops with a [`None`] item.
+    /// The stream is infinite, i.e. it never stops with a [`None`].
     ///
     /// # Examples
     ///
@@ -706,7 +706,7 @@ impl Async<TcpListener> {
     /// use std::net::TcpListener;
     ///
     /// # blocking::block_on(async {
-    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 8000))?;
     /// let mut incoming = listener.incoming();
     ///
     /// while let Some(stream) = incoming.next().await {
@@ -728,7 +728,7 @@ impl Async<TcpStream> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use async_io::Async;
     /// use std::net::{TcpStream, ToSocketAddrs};
     ///
@@ -782,13 +782,18 @@ impl Async<TcpStream> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use async_io::Async;
+    /// use futures::prelude::*;
     /// use std::net::{TcpStream, ToSocketAddrs};
     ///
     /// # blocking::block_on(async {
     /// let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
-    /// let stream = Async::<TcpStream>::connect(addr).await?;
+    /// let mut stream = Async::<TcpStream>::connect(addr).await?;
+    ///
+    /// stream
+    ///     .write_all(b"GET / HTTP/1.1\r\nHost: example.com\r\n\r\n")
+    ///     .await?;
     ///
     /// let mut buf = [0u8; 1024];
     /// let len = stream.peek(&mut buf).await?;
@@ -806,7 +811,7 @@ impl Async<UdpSocket> {
     ///
     /// # Examples
     ///
-    /// ```no_run
+    /// ```
     /// use async_io::Async;
     /// use std::net::UdpSocket;
     ///
@@ -858,7 +863,7 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
     ///
     /// let mut buf = [0u8; 1024];
     /// let (len, addr) = socket.peek_from(&mut buf).await?;
@@ -908,8 +913,8 @@ impl Async<UdpSocket> {
     /// use std::net::UdpSocket;
     ///
     /// # blocking::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
-    /// socket.get_ref().connect("127.0.0.1:8000")?; // TODO this doesn't seem right
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
+    /// socket.get_ref().connect("127.0.0.1:9000")?;
     ///
     /// let mut buf = [0u8; 1024];
     /// let len = socket.recv(&mut buf).await?;
