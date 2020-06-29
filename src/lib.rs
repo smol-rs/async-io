@@ -1,15 +1,7 @@
 //! Async I/O and timers.
 //!
-//! # Implementation
-//!
 //! To wait for the next I/O event, the reactor calls [epoll] on Linux/Android, [kqueue] on
 //! macOS/iOS/BSD, and [wepoll] on Windows.
-//!
-//! The [`Async`] type registers I/O handles in the reactor and is able to convert their blocking
-//! operations into async operations.
-//!
-//! The [`Timer`] type registers timers in the reactor that will fire at the chosen points in
-//! time.
 //!
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
