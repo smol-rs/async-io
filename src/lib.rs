@@ -538,7 +538,7 @@ where
 
 /// Moves blocking code onto the thread pool.
 ///
-/// Note that `unblock!(expr)` is just syntax sugar for `Unblock::new(move || expr).await`.
+/// Note that `unblock!(expr)` is just syntax sugar for `unblock(move || expr).await`.
 ///
 /// # Examples
 ///
