@@ -20,50 +20,6 @@ pub mod event {
     use super::check_err;
     use std::os::unix::io::RawFd;
 
-    #[cfg(any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "freebsd",
-        target_os = "dragonfly",
-        target_os = "openbsd"
-    ))]
-    #[allow(non_camel_case_types)]
-    type type_of_nchanges = libc::c_int;
-    #[cfg(target_os = "netbsd")]
-    #[allow(non_camel_case_types)]
-    type type_of_nchanges = libc::size_t;
-
-    #[cfg(target_os = "netbsd")]
-    #[allow(non_camel_case_types)]
-    type type_of_event_filter = u32;
-    #[cfg(not(target_os = "netbsd"))]
-    #[allow(non_camel_case_types)]
-    type type_of_event_filter = i16;
-
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "ios",
-        target_os = "macos",
-        target_os = "openbsd"
-    ))]
-    #[allow(non_camel_case_types)]
-    type type_of_udata = *mut libc::c_void;
-    #[cfg(any(
-        target_os = "dragonfly",
-        target_os = "freebsd",
-        target_os = "ios",
-        target_os = "macos"
-    ))]
-    #[allow(non_camel_case_types)]
-    type type_of_data = libc::intptr_t;
-    #[cfg(any(target_os = "netbsd"))]
-    #[allow(non_camel_case_types)]
-    type type_of_udata = libc::intptr_t;
-    #[cfg(any(target_os = "netbsd", target_os = "openbsd"))]
-    #[allow(non_camel_case_types)]
-    type type_of_data = libc::int64_t;
-
     #[derive(Clone, Copy)]
     #[repr(C)]
     pub struct KEvent(libc::kevent);
@@ -81,16 +37,16 @@ pub mod event {
         ) -> KEvent {
             KEvent(libc::kevent {
                 ident,
-                filter: filter as type_of_event_filter,
+                filter: filter as _,
                 flags,
                 fflags,
-                data: data as type_of_data,
-                udata: udata as type_of_udata,
+                data: data as _,
+                udata: udata as _,
             })
         }
 
         pub fn filter(&self) -> EventFilter {
-            unsafe { std::mem::transmute(self.0.filter as type_of_event_filter) }
+            self.0.filter as _
         }
 
         pub fn flags(&self) -> EventFlag {
@@ -140,9 +96,9 @@ pub mod event {
             libc::kevent(
                 kq,
                 changelist.as_ptr() as *const libc::kevent,
-                changelist.len() as type_of_nchanges,
+                changelist.len() as _,
                 eventlist.as_mut_ptr() as *mut libc::kevent,
-                eventlist.len() as type_of_nchanges,
+                eventlist.len() as _,
                 if let Some(ref timeout) = timeout_opt {
                     timeout as *const libc::timespec
                 } else {
