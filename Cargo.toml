@@ -9,7 +9,7 @@ repository = "https://github.com/stjepang/async-io"
 homepage = "https://github.com/stjepang/async-io"
 documentation = "https://docs.rs/async-io"
 keywords = ["mio", "epoll", "kqueue", "iocp", "wepoll"]
-categories = ["asynchronous"]
+categories = ["asynchronous", "network-programming", "os"]
 readme = "README.md"
 
 [dependencies]
