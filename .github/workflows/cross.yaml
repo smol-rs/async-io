@@ -48,4 +48,4 @@ jobs:
 
     - name: illumos
       if: startsWith(matrix.os, 'ubuntu')
-      run: cross build --target x86_64-unknown-illumos
+      run: cross check --target x86_64-unknown-illumos
