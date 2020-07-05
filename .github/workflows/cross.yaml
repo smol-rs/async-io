@@ -45,3 +45,7 @@ jobs:
     - name: iOS
       if: startsWith(matrix.os, 'macos')
       run: cross build --target aarch64-apple-ios
+
+    # - name: illumos
+    #   if: startsWith(matrix.os, 'ubuntu')
+    #   run: cross build --target x86_64-unknown-illumos
