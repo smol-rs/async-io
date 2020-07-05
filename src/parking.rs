@@ -886,9 +886,8 @@ mod sys {
     use std::io::{self, Read, Write};
     use std::os::unix::io::{AsRawFd, RawFd};
     use std::os::unix::net::UnixStream;
+    use std::ptr;
     use std::time::Duration;
-
-    use crate::sys::event::{kevent_ts, kqueue, KEvent};
 
     macro_rules! syscall {
         ($fn:ident $args:tt) => {{
@@ -908,7 +907,7 @@ mod sys {
     }
     impl Reactor {
         pub fn new() -> io::Result<Reactor> {
-            let kqueue_fd = kqueue()?;
+            let kqueue_fd = syscall!(kqueue())?;
             syscall!(fcntl(kqueue_fd, libc::F_SETFD, libc::FD_CLOEXEC))?;
             let (read_stream, write_stream) = UnixStream::pair()?;
             read_stream.set_nonblocking(true)?;
@@ -939,22 +938,41 @@ mod sys {
             } else {
                 write_flags |= libc::EV_DELETE;
             }
-            let udata = key as _;
             let changelist = [
-                KEvent::new(fd as _, libc::EVFILT_READ, read_flags, 0, 0, udata),
-                KEvent::new(fd as _, libc::EVFILT_WRITE, write_flags, 0, 0, udata),
+                libc::kevent {
+                    ident: fd as _,
+                    filter: libc::EVFILT_READ,
+                    flags: read_flags,
+                    fflags: 0,
+                    data: 0,
+                    udata: key as _,
+                },
+                libc::kevent {
+                    ident: fd as _,
+                    filter: libc::EVFILT_WRITE,
+                    flags: write_flags,
+                    fflags: 0,
+                    data: 0,
+                    udata: key as _,
+                },
             ];
             let mut eventlist = changelist;
-            kevent_ts(self.kqueue_fd, &changelist, &mut eventlist, None)?;
+            syscall!(kevent(
+                self.kqueue_fd,
+                changelist.as_ptr() as *const libc::kevent,
+                changelist.len() as _,
+                eventlist.as_mut_ptr() as *mut libc::kevent,
+                eventlist.len() as _,
+                ptr::null(),
+            ))?;
             for ev in &eventlist {
                 // Explanation for ignoring EPIPE: https://github.com/tokio-rs/mio/issues/582
-                let (flags, data) = (ev.flags(), ev.data());
-                if (flags & libc::EV_ERROR) == 1
-                    && data != 0
-                    && data != libc::ENOENT as _
-                    && data != libc::EPIPE as _
+                if (ev.flags & libc::EV_ERROR) != 0
+                    && ev.data != 0
+                    && ev.data != libc::ENOENT as _
+                    && ev.data != libc::EPIPE as _
                 {
-                    return Err(io::Error::from_raw_os_error(data as _));
+                    return Err(io::Error::from_raw_os_error(ev.data as _));
                 }
             }
             Ok(())
@@ -962,15 +980,36 @@ mod sys {
         pub fn deregister(&self, fd: RawFd) -> io::Result<()> {
             let flags = libc::EV_DELETE | libc::EV_RECEIPT;
             let changelist = [
-                KEvent::new(fd as _, libc::EVFILT_WRITE, flags, 0, 0, 0),
-                KEvent::new(fd as _, libc::EVFILT_READ, flags, 0, 0, 0),
+                libc::kevent {
+                    ident: fd as _,
+                    filter: libc::EVFILT_READ,
+                    flags: flags,
+                    fflags: 0,
+                    data: 0,
+                    udata: ptr::null_mut(),
+                },
+                libc::kevent {
+                    ident: fd as _,
+                    filter: libc::EVFILT_WRITE,
+                    flags: flags,
+                    fflags: 0,
+                    data: 0,
+                    udata: ptr::null_mut(),
+                },
             ];
             let mut eventlist = changelist;
-            kevent_ts(self.kqueue_fd, &changelist, &mut eventlist, None)?;
+            syscall!(kevent(
+                self.kqueue_fd,
+                changelist.as_ptr() as *const libc::kevent,
+                changelist.len() as _,
+                eventlist.as_mut_ptr() as *mut libc::kevent,
+                eventlist.len() as _,
+                ptr::null(),
+            ))?;
             for ev in &eventlist {
-                let (flags, data) = (ev.flags(), ev.data());
-                if (flags & libc::EV_ERROR == 1) && data != 0 && data != libc::ENOENT as _ {
-                    return Err(io::Error::from_raw_os_error(data as _));
+                if (ev.flags & libc::EV_ERROR) != 0 && ev.data != 0 && ev.data != libc::ENOENT as _
+                {
+                    return Err(io::Error::from_raw_os_error(ev.data as _));
                 }
             }
             Ok(())
@@ -980,7 +1019,20 @@ mod sys {
                 tv_sec: t.as_secs() as libc::time_t,
                 tv_nsec: t.subsec_nanos() as libc::c_long,
             });
-            events.len = kevent_ts(self.kqueue_fd, &[], &mut events.list, timeout)?;
+            let changelist = [];
+            let eventlist = &mut events.list;
+            let res = syscall!(kevent(
+                self.kqueue_fd,
+                changelist.as_ptr() as *const libc::kevent,
+                changelist.len() as _,
+                eventlist.as_mut_ptr() as *mut libc::kevent,
+                eventlist.len() as _,
+                match &timeout {
+                    None => ptr::null(),
+                    Some(t) => t,
+                }
+            ))?;
+            events.len = res as usize;
 
             while (&self.read_stream).read(&mut [0; 64]).is_ok() {}
             self.reregister(self.read_stream.as_raw_fd(), !0, true, false)?;
@@ -994,13 +1046,19 @@ mod sys {
     }
 
     pub struct Events {
-        list: Box<[KEvent]>,
+        list: Box<[libc::kevent]>,
         len: usize,
     }
     impl Events {
         pub fn new() -> Events {
-            let flags = 0;
-            let event = KEvent::new(0, 0, flags, 0, 0, 0);
+            let event = libc::kevent {
+                ident: 0 as _,
+                filter: 0,
+                flags: 0,
+                fflags: 0,
+                data: 0,
+                udata: ptr::null_mut(),
+            };
             let list = vec![event; 1000].into_boxed_slice();
             let len = 0;
             Events { list, len }
@@ -1011,13 +1069,14 @@ mod sys {
             //
             // https://github.com/golang/go/commit/23aad448b1e3f7c3b4ba2af90120bde91ac865b4
             self.list[..self.len].iter().map(|ev| Event {
-                readable: ev.filter() == libc::EVFILT_READ,
-                writable: ev.filter() == libc::EVFILT_WRITE
-                    || (ev.filter() == libc::EVFILT_READ && (ev.flags() & libc::EV_EOF) != 0),
-                key: ev.udata() as usize,
+                readable: ev.filter == libc::EVFILT_READ,
+                writable: ev.filter == libc::EVFILT_WRITE
+                    || (ev.filter == libc::EVFILT_READ && (ev.flags & libc::EV_EOF) != 0),
+                key: ev.udata as usize,
             })
         }
     }
+    unsafe impl Send for Events {}
     pub struct Event {
         pub readable: bool,
         pub writable: bool,
@@ -1031,6 +1090,7 @@ mod sys {
     use std::convert::TryInto;
     use std::io;
     use std::os::windows::io::{AsRawSocket, RawSocket};
+    use std::ptr;
     use std::time::Duration;
 
     use wepoll_sys_stjepang as we;
@@ -1115,7 +1175,7 @@ mod sys {
                 self.handle,
                 we::EPOLL_CTL_DEL as libc::c_int,
                 sock as we::SOCKET,
-                0 as *mut we::epoll_event,
+                ptr::null_mut(),
             ))?;
             Ok(())
         }
@@ -1148,7 +1208,7 @@ mod sys {
                     self.handle as winapi::um::winnt::HANDLE,
                     0,
                     0,
-                    0 as *mut _,
+                    ptr::null_mut(),
                 );
             }
             Ok(())
