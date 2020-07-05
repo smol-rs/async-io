@@ -32,7 +32,6 @@ use socket2::{Domain, Protocol, Socket, Type};
 use crate::parking::{Reactor, Source};
 
 pub mod parking;
-mod sys;
 
 /// Fires at the chosen point in time.
 ///
