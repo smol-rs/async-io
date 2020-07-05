@@ -986,7 +986,7 @@ mod sys {
                     flags: flags,
                     fflags: 0,
                     data: 0,
-                    udata: ptr::null_mut(),
+                    udata: 0 as _,
                 },
                 libc::kevent {
                     ident: fd as _,
@@ -994,7 +994,7 @@ mod sys {
                     flags: flags,
                     fflags: 0,
                     data: 0,
-                    udata: ptr::null_mut(),
+                    udata: 0 as _,
                 },
             ];
             let mut eventlist = changelist;
@@ -1057,7 +1057,7 @@ mod sys {
                 flags: 0,
                 fflags: 0,
                 data: 0,
-                udata: ptr::null_mut(),
+                udata: 0 as _,
             };
             let list = vec![event; 1000].into_boxed_slice();
             let len = 0;
