@@ -729,6 +729,34 @@ impl Async<TcpStream> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub async fn connect<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<TcpStream>> {
+        Self::connect_with(addr, None).await
+    }
+
+    /// Creates a TCP connection to the specified address and connect timeout duration.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Async;
+    /// use std::net::{TcpStream, ToSocketAddrs};
+    /// use std::time::Duration;
+    ///
+    /// # blocking::block_on(async {
+    /// let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
+    /// let stream = Async::<TcpStream>::connect_timeout(addr, Duration::from_millis(1000)).await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub async fn connect_timeout<A: Into<SocketAddr>>(
+        addr: A,
+        timeout: Duration,
+    ) -> io::Result<Async<TcpStream>> {
+        Self::connect_with(addr, Some(timeout)).await
+    }
+
+    async fn connect_with<A: Into<SocketAddr>>(
+        addr: A,
+        connect_timeout: Option<Duration>,
+    ) -> io::Result<Async<TcpStream>> {
         let addr = addr.into();
 
         // Create a socket.
@@ -741,7 +769,12 @@ impl Async<TcpStream> {
 
         // Begin async connect and ignore the inevitable "in progress" error.
         socket.set_nonblocking(true)?;
-        socket.connect(&addr.into()).or_else(|err| {
+        let ret = if let Some(connect_timeout) = connect_timeout {
+            socket.connect_timeout(&addr.into(), connect_timeout)
+        } else {
+            socket.connect(&addr.into())
+        };
+        ret.or_else(|err| {
             // Check for EINPROGRESS on Unix and WSAEWOULDBLOCK on Windows.
             #[cfg(unix)]
             let in_progress = err.raw_os_error() == Some(libc::EINPROGRESS);

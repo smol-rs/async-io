@@ -1,6 +1,6 @@
 use std::future::Future;
 use std::io;
-use std::net::{Shutdown, TcpListener, TcpStream, UdpSocket};
+use std::net::{Shutdown, TcpListener, TcpStream, ToSocketAddrs, UdpSocket};
 #[cfg(unix)]
 use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
 use std::sync::Arc;
@@ -56,6 +56,24 @@ fn tcp_connect() -> io::Result<()> {
         // Now that the listener is closed, connect should fail.
         let err = Async::<TcpStream>::connect(addr).await.unwrap_err();
         assert_eq!(err.kind(), io::ErrorKind::ConnectionRefused);
+
+        Ok(())
+    })
+}
+
+#[test]
+fn tcp_connect_timeout() -> io::Result<()> {
+    block_on(async {
+        match Async::<TcpStream>::connect_timeout(
+            "1.1.1.1:1".to_socket_addrs()?.next().unwrap(),
+            Duration::from_millis(1),
+        )
+        .await
+        {
+            Ok(_) => assert!(false, "Should got io::ErrorKind::TimedOut error"),
+            Err(ref e) if e.kind() == io::ErrorKind::TimedOut => {}
+            Err(_) => assert!(false, "Should got io::ErrorKind::TimedOut error"),
+        }
 
         Ok(())
     })
