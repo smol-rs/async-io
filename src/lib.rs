@@ -7,6 +7,8 @@
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 //! [wepoll]: https://github.com/piscisaureus/wepoll
 
+#![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
+
 use std::fmt::Debug;
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
@@ -32,6 +34,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 use crate::parking::{Reactor, Source};
 
 pub mod parking;
+mod sys;
 
 /// Fires at the chosen point in time.
 ///

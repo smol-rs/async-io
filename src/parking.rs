@@ -4,20 +4,6 @@
 //! is that [`Parker`] in this module will wait on epoll/kqueue/wepoll and wake tasks blocked on
 //! I/O or timers.
 
-#[cfg(not(any(
-    target_os = "linux",     // epoll
-    target_os = "android",   // epoll
-    target_os = "illumos",   // epoll
-    target_os = "macos",     // kqueue
-    target_os = "ios",       // kqueue
-    target_os = "freebsd",   // kqueue
-    target_os = "netbsd",    // kqueue
-    target_os = "openbsd",   // kqueue
-    target_os = "dragonfly", // kqueue
-    target_os = "windows",   // wepoll
-)))]
-compile_error!("async-io does not support this target OS");
-
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
@@ -36,7 +22,9 @@ use std::time::{Duration, Instant};
 use concurrent_queue::ConcurrentQueue;
 use futures_util::future;
 use once_cell::sync::Lazy;
-use slab::Slab;
+use vec_arena::Arena;
+
+use crate::sys;
 
 static PARKER_COUNT: AtomicUsize = AtomicUsize::new(0);
 
@@ -304,7 +292,7 @@ pub(crate) struct Reactor {
     ticker: AtomicUsize,
 
     /// Registered sources.
-    sources: Mutex<Slab<Arc<Source>>>,
+    sources: Mutex<Arena<Arc<Source>>>,
 
     /// Temporary storage for I/O events when polling the reactor.
     events: Mutex<sys::Events>,
@@ -378,7 +366,7 @@ impl Reactor {
                 thread_unparker: unparker,
                 sys: sys::Reactor::new().expect("cannot initialize I/O event notification"),
                 ticker: AtomicUsize::new(0),
-                sources: Mutex::new(Slab::new()),
+                sources: Mutex::new(Arena::new()),
                 events: Mutex::new(sys::Events::new()),
                 timers: Mutex::new(BTreeMap::new()),
                 timer_ops: ConcurrentQueue::bounded(1000),
@@ -399,11 +387,10 @@ impl Reactor {
         #[cfg(windows)] raw: RawSocket,
     ) -> io::Result<Arc<Source>> {
         let mut sources = self.sources.lock().unwrap();
-        let vacant = sources.vacant_entry();
+        let key = sources.next_vacant();
 
         // Create a source and register it.
-        let key = vacant.key();
-        self.sys.register(raw, key)?;
+        self.sys.insert(raw, key)?;
 
         let source = Arc::new(Source {
             raw,
@@ -415,14 +402,16 @@ impl Reactor {
                 writers: Vec::new(),
             }),
         });
-        Ok(vacant.insert(source).clone())
+        sources.insert(source.clone());
+
+        Ok(source)
     }
 
     /// Deregisters an I/O source from the reactor.
     pub(crate) fn remove_io(&self, source: &Source) -> io::Result<()> {
         let mut sources = self.sources.lock().unwrap();
         sources.remove(source.key);
-        self.sys.deregister(source.raw)
+        self.sys.remove(source.raw)
     }
 
     /// Registers a timer in the reactor.
@@ -595,7 +584,7 @@ impl ReactorLock<'_> {
                         // previously interested in both readability and
                         // writability, but only one of them was emitted.
                         if !(w.writers.is_empty() && w.readers.is_empty()) {
-                            self.reactor.sys.reregister(
+                            self.reactor.sys.interest(
                                 source.raw,
                                 source.key,
                                 !w.readers.is_empty(),
@@ -689,7 +678,7 @@ impl Source {
             if w.readers.is_empty() {
                 Reactor::get()
                     .sys
-                    .reregister(self.raw, self.key, true, !w.writers.is_empty())?;
+                    .interest(self.raw, self.key, true, !w.writers.is_empty())?;
             }
 
             // Register the current task's waker if not present already.
@@ -730,7 +719,7 @@ impl Source {
             if w.writers.is_empty() {
                 Reactor::get()
                     .sys
-                    .reregister(self.raw, self.key, !w.readers.is_empty(), true)?;
+                    .interest(self.raw, self.key, !w.readers.is_empty(), true)?;
             }
 
             // Register the current task's waker if not present already.
@@ -749,563 +738,5 @@ impl Source {
             Poll::Pending
         })
         .await
-    }
-}
-
-/// Raw bindings to epoll (Linux, Android, illumos).
-#[cfg(any(target_os = "linux", target_os = "android", target_os = "illumos"))]
-mod sys {
-    use std::convert::TryInto;
-    use std::io;
-    use std::os::unix::io::RawFd;
-    use std::ptr;
-    use std::time::Duration;
-
-    macro_rules! syscall {
-        ($fn:ident $args:tt) => {{
-            let res = unsafe { libc::$fn $args };
-            if res == -1 {
-                Err(std::io::Error::last_os_error())
-            } else {
-                Ok(res)
-            }
-        }};
-    }
-
-    pub struct Reactor {
-        epoll_fd: RawFd,
-        event_fd: RawFd,
-    }
-    impl Reactor {
-        pub fn new() -> io::Result<Reactor> {
-            // According to libuv, `EPOLL_CLOEXEC` is not defined on Android API < 21.
-            // But `EPOLL_CLOEXEC` is an alias for `O_CLOEXEC` on that platform, so we use it instead.
-            #[cfg(target_os = "android")]
-            const CLOEXEC: libc::c_int = libc::O_CLOEXEC;
-            #[cfg(not(target_os = "android"))]
-            const CLOEXEC: libc::c_int = libc::EPOLL_CLOEXEC;
-
-            let epoll_fd = unsafe {
-                // Check if the `epoll_create1` symbol is available on this platform.
-                let ptr = libc::dlsym(
-                    libc::RTLD_DEFAULT,
-                    "epoll_create1\0".as_ptr() as *const libc::c_char,
-                );
-
-                if ptr.is_null() {
-                    // If not, use `epoll_create` and manually set `CLOEXEC`.
-                    let fd = match libc::epoll_create(1024) {
-                        -1 => return Err(io::Error::last_os_error()),
-                        fd => fd,
-                    };
-                    let flags = libc::fcntl(fd, libc::F_GETFD);
-                    libc::fcntl(fd, libc::F_SETFD, flags | libc::FD_CLOEXEC);
-                    fd
-                } else {
-                    // Use `epoll_create1` with `CLOEXEC`.
-                    let epoll_create1 = std::mem::transmute::<
-                        *mut libc::c_void,
-                        unsafe extern "C" fn(libc::c_int) -> libc::c_int,
-                    >(ptr);
-                    match epoll_create1(CLOEXEC) {
-                        -1 => return Err(io::Error::last_os_error()),
-                        fd => fd,
-                    }
-                }
-            };
-
-            let event_fd = syscall!(eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK))?;
-            let reactor = Reactor { epoll_fd, event_fd };
-            reactor.register(event_fd, !0)?;
-            reactor.reregister(event_fd, !0, true, false)?;
-            Ok(reactor)
-        }
-        pub fn register(&self, fd: RawFd, key: usize) -> io::Result<()> {
-            let flags = syscall!(fcntl(fd, libc::F_GETFL))?;
-            syscall!(fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK))?;
-            let mut ev = libc::epoll_event {
-                events: 0,
-                u64: key as u64,
-            };
-            syscall!(epoll_ctl(self.epoll_fd, libc::EPOLL_CTL_ADD, fd, &mut ev))?;
-            Ok(())
-        }
-        pub fn reregister(&self, fd: RawFd, key: usize, read: bool, write: bool) -> io::Result<()> {
-            let mut flags = libc::EPOLLONESHOT;
-            if read {
-                flags |= read_flags();
-            }
-            if write {
-                flags |= write_flags();
-            }
-            let mut ev = libc::epoll_event {
-                events: flags as _,
-                u64: key as u64,
-            };
-            syscall!(epoll_ctl(self.epoll_fd, libc::EPOLL_CTL_MOD, fd, &mut ev))?;
-            Ok(())
-        }
-        pub fn deregister(&self, fd: RawFd) -> io::Result<()> {
-            syscall!(epoll_ctl(
-                self.epoll_fd,
-                libc::EPOLL_CTL_DEL,
-                fd,
-                ptr::null_mut()
-            ))?;
-            Ok(())
-        }
-        pub fn wait(&self, events: &mut Events, timeout: Option<Duration>) -> io::Result<usize> {
-            let timeout_ms = timeout
-                .map(|t| {
-                    if t == Duration::from_millis(0) {
-                        t
-                    } else {
-                        t.max(Duration::from_millis(1))
-                    }
-                })
-                .and_then(|t| t.as_millis().try_into().ok())
-                .unwrap_or(-1);
-
-            let res = syscall!(epoll_wait(
-                self.epoll_fd,
-                events.list.as_mut_ptr() as *mut libc::epoll_event,
-                events.list.len() as libc::c_int,
-                timeout_ms as libc::c_int,
-            ))?;
-            events.len = res as usize;
-
-            let mut buf = [0u8; 8];
-            let _ = syscall!(read(
-                self.event_fd,
-                &mut buf[0] as *mut u8 as *mut libc::c_void,
-                buf.len()
-            ));
-            self.reregister(self.event_fd, !0, true, false)?;
-
-            Ok(events.len)
-        }
-        pub fn notify(&self) -> io::Result<()> {
-            let buf: [u8; 8] = 1u64.to_ne_bytes();
-            let _ = syscall!(write(
-                self.event_fd,
-                &buf[0] as *const u8 as *const libc::c_void,
-                buf.len()
-            ));
-            Ok(())
-        }
-    }
-    fn read_flags() -> libc::c_int {
-        libc::EPOLLIN | libc::EPOLLRDHUP | libc::EPOLLHUP | libc::EPOLLERR | libc::EPOLLPRI
-    }
-    fn write_flags() -> libc::c_int {
-        libc::EPOLLOUT | libc::EPOLLHUP | libc::EPOLLERR
-    }
-
-    pub struct Events {
-        list: Box<[libc::epoll_event]>,
-        len: usize,
-    }
-    impl Events {
-        pub fn new() -> Events {
-            let ev = libc::epoll_event { events: 0, u64: 0 };
-            let list = vec![ev; 1000].into_boxed_slice();
-            let len = 0;
-            Events { list, len }
-        }
-        pub fn iter(&self) -> impl Iterator<Item = Event> + '_ {
-            self.list[..self.len].iter().map(|ev| Event {
-                readable: (ev.events as libc::c_int & read_flags()) != 0,
-                writable: (ev.events as libc::c_int & write_flags()) != 0,
-                key: ev.u64 as usize,
-            })
-        }
-    }
-    pub struct Event {
-        pub readable: bool,
-        pub writable: bool,
-        pub key: usize,
-    }
-}
-
-/// Raw bindings to kqueue (macOS, iOS, FreeBSD, NetBSD, OpenBSD, DragonFly BSD).
-#[cfg(any(
-    target_os = "macos",
-    target_os = "ios",
-    target_os = "freebsd",
-    target_os = "netbsd",
-    target_os = "openbsd",
-    target_os = "dragonfly",
-))]
-mod sys {
-    use std::io::{self, Read, Write};
-    use std::os::unix::io::{AsRawFd, RawFd};
-    use std::os::unix::net::UnixStream;
-    use std::ptr;
-    use std::time::Duration;
-
-    macro_rules! syscall {
-        ($fn:ident $args:tt) => {{
-            let res = unsafe { libc::$fn $args };
-            if res == -1 {
-                Err(std::io::Error::last_os_error())
-            } else {
-                Ok(res)
-            }
-        }};
-    }
-
-    pub struct Reactor {
-        kqueue_fd: RawFd,
-        read_stream: UnixStream,
-        write_stream: UnixStream,
-    }
-    impl Reactor {
-        pub fn new() -> io::Result<Reactor> {
-            let kqueue_fd = syscall!(kqueue())?;
-            syscall!(fcntl(kqueue_fd, libc::F_SETFD, libc::FD_CLOEXEC))?;
-            let (read_stream, write_stream) = UnixStream::pair()?;
-            read_stream.set_nonblocking(true)?;
-            write_stream.set_nonblocking(true)?;
-            let reactor = Reactor {
-                kqueue_fd,
-                read_stream,
-                write_stream,
-            };
-            reactor.reregister(reactor.read_stream.as_raw_fd(), !0, true, false)?;
-            Ok(reactor)
-        }
-        pub fn register(&self, fd: RawFd, _key: usize) -> io::Result<()> {
-            let flags = syscall!(fcntl(fd, libc::F_GETFL))?;
-            syscall!(fcntl(fd, libc::F_SETFL, flags | libc::O_NONBLOCK))?;
-            Ok(())
-        }
-        pub fn reregister(&self, fd: RawFd, key: usize, read: bool, write: bool) -> io::Result<()> {
-            let mut read_flags = libc::EV_ONESHOT | libc::EV_RECEIPT;
-            let mut write_flags = libc::EV_ONESHOT | libc::EV_RECEIPT;
-            if read {
-                read_flags |= libc::EV_ADD;
-            } else {
-                read_flags |= libc::EV_DELETE;
-            }
-            if write {
-                write_flags |= libc::EV_ADD;
-            } else {
-                write_flags |= libc::EV_DELETE;
-            }
-            let changelist = [
-                libc::kevent {
-                    ident: fd as _,
-                    filter: libc::EVFILT_READ,
-                    flags: read_flags,
-                    fflags: 0,
-                    data: 0,
-                    udata: key as _,
-                },
-                libc::kevent {
-                    ident: fd as _,
-                    filter: libc::EVFILT_WRITE,
-                    flags: write_flags,
-                    fflags: 0,
-                    data: 0,
-                    udata: key as _,
-                },
-            ];
-            let mut eventlist = changelist;
-            syscall!(kevent(
-                self.kqueue_fd,
-                changelist.as_ptr() as *const libc::kevent,
-                changelist.len() as _,
-                eventlist.as_mut_ptr() as *mut libc::kevent,
-                eventlist.len() as _,
-                ptr::null(),
-            ))?;
-            for ev in &eventlist {
-                // Explanation for ignoring EPIPE: https://github.com/tokio-rs/mio/issues/582
-                if (ev.flags & libc::EV_ERROR) != 0
-                    && ev.data != 0
-                    && ev.data != libc::ENOENT as _
-                    && ev.data != libc::EPIPE as _
-                {
-                    return Err(io::Error::from_raw_os_error(ev.data as _));
-                }
-            }
-            Ok(())
-        }
-        pub fn deregister(&self, fd: RawFd) -> io::Result<()> {
-            let flags = libc::EV_DELETE | libc::EV_RECEIPT;
-            let changelist = [
-                libc::kevent {
-                    ident: fd as _,
-                    filter: libc::EVFILT_READ,
-                    flags: flags,
-                    fflags: 0,
-                    data: 0,
-                    udata: 0 as _,
-                },
-                libc::kevent {
-                    ident: fd as _,
-                    filter: libc::EVFILT_WRITE,
-                    flags: flags,
-                    fflags: 0,
-                    data: 0,
-                    udata: 0 as _,
-                },
-            ];
-            let mut eventlist = changelist;
-            syscall!(kevent(
-                self.kqueue_fd,
-                changelist.as_ptr() as *const libc::kevent,
-                changelist.len() as _,
-                eventlist.as_mut_ptr() as *mut libc::kevent,
-                eventlist.len() as _,
-                ptr::null(),
-            ))?;
-            for ev in &eventlist {
-                if (ev.flags & libc::EV_ERROR) != 0 && ev.data != 0 && ev.data != libc::ENOENT as _
-                {
-                    return Err(io::Error::from_raw_os_error(ev.data as _));
-                }
-            }
-            Ok(())
-        }
-        pub fn wait(&self, events: &mut Events, timeout: Option<Duration>) -> io::Result<usize> {
-            let timeout = timeout.map(|t| libc::timespec {
-                tv_sec: t.as_secs() as libc::time_t,
-                tv_nsec: t.subsec_nanos() as libc::c_long,
-            });
-            let changelist = [];
-            let eventlist = &mut events.list;
-            let res = syscall!(kevent(
-                self.kqueue_fd,
-                changelist.as_ptr() as *const libc::kevent,
-                changelist.len() as _,
-                eventlist.as_mut_ptr() as *mut libc::kevent,
-                eventlist.len() as _,
-                match &timeout {
-                    None => ptr::null(),
-                    Some(t) => t,
-                }
-            ))?;
-            events.len = res as usize;
-
-            while (&self.read_stream).read(&mut [0; 64]).is_ok() {}
-            self.reregister(self.read_stream.as_raw_fd(), !0, true, false)?;
-
-            Ok(events.len)
-        }
-        pub fn notify(&self) -> io::Result<()> {
-            let _ = (&self.write_stream).write(&[1]);
-            Ok(())
-        }
-    }
-
-    pub struct Events {
-        list: Box<[libc::kevent]>,
-        len: usize,
-    }
-    impl Events {
-        pub fn new() -> Events {
-            let event = libc::kevent {
-                ident: 0 as _,
-                filter: 0,
-                flags: 0,
-                fflags: 0,
-                data: 0,
-                udata: 0 as _,
-            };
-            let list = vec![event; 1000].into_boxed_slice();
-            let len = 0;
-            Events { list, len }
-        }
-        pub fn iter(&self) -> impl Iterator<Item = Event> + '_ {
-            // On some platforms, closing the read end of a pipe wakes up writers, but the
-            // event is reported as EVFILT_READ with the EV_EOF flag.
-            //
-            // https://github.com/golang/go/commit/23aad448b1e3f7c3b4ba2af90120bde91ac865b4
-            self.list[..self.len].iter().map(|ev| Event {
-                readable: ev.filter == libc::EVFILT_READ,
-                writable: ev.filter == libc::EVFILT_WRITE
-                    || (ev.filter == libc::EVFILT_READ && (ev.flags & libc::EV_EOF) != 0),
-                key: ev.udata as usize,
-            })
-        }
-    }
-    unsafe impl Send for Events {}
-    pub struct Event {
-        pub readable: bool,
-        pub writable: bool,
-        pub key: usize,
-    }
-}
-
-/// Raw bindings to wepoll (Windows).
-#[cfg(target_os = "windows")]
-mod sys {
-    use std::convert::TryInto;
-    use std::io;
-    use std::os::windows::io::{AsRawSocket, RawSocket};
-    use std::ptr;
-    use std::time::Duration;
-
-    use wepoll_sys_stjepang as we;
-    use winapi::um::winsock2;
-
-    macro_rules! syscall {
-        ($fn:ident $args:tt) => {{
-            let res = unsafe { we::$fn $args };
-            if res == -1 {
-                Err(std::io::Error::last_os_error())
-            } else {
-                Ok(res)
-            }
-        }};
-    }
-
-    pub struct Reactor {
-        handle: we::HANDLE,
-    }
-    unsafe impl Send for Reactor {}
-    unsafe impl Sync for Reactor {}
-    impl Reactor {
-        pub fn new() -> io::Result<Reactor> {
-            let handle = unsafe { we::epoll_create1(0) };
-            if handle.is_null() {
-                return Err(io::Error::last_os_error());
-            }
-            Ok(Reactor { handle })
-        }
-        pub fn register(&self, sock: RawSocket, key: usize) -> io::Result<()> {
-            unsafe {
-                let mut nonblocking = true as libc::c_ulong;
-                let res = winsock2::ioctlsocket(
-                    sock as winsock2::SOCKET,
-                    winsock2::FIONBIO,
-                    &mut nonblocking,
-                );
-                if res != 0 {
-                    return Err(io::Error::last_os_error());
-                }
-            }
-            let mut ev = we::epoll_event {
-                events: 0,
-                data: we::epoll_data { u64: key as u64 },
-            };
-            syscall!(epoll_ctl(
-                self.handle,
-                we::EPOLL_CTL_ADD as libc::c_int,
-                sock as we::SOCKET,
-                &mut ev,
-            ))?;
-            Ok(())
-        }
-        pub fn reregister(
-            &self,
-            sock: RawSocket,
-            key: usize,
-            read: bool,
-            write: bool,
-        ) -> io::Result<()> {
-            let mut flags = we::EPOLLONESHOT;
-            if read {
-                flags |= READ_FLAGS;
-            }
-            if write {
-                flags |= WRITE_FLAGS;
-            }
-            let mut ev = we::epoll_event {
-                events: flags as u32,
-                data: we::epoll_data { u64: key as u64 },
-            };
-            syscall!(epoll_ctl(
-                self.handle,
-                we::EPOLL_CTL_MOD as libc::c_int,
-                sock as we::SOCKET,
-                &mut ev,
-            ))?;
-            Ok(())
-        }
-        pub fn deregister(&self, sock: RawSocket) -> io::Result<()> {
-            syscall!(epoll_ctl(
-                self.handle,
-                we::EPOLL_CTL_DEL as libc::c_int,
-                sock as we::SOCKET,
-                ptr::null_mut(),
-            ))?;
-            Ok(())
-        }
-        pub fn wait(&self, events: &mut Events, timeout: Option<Duration>) -> io::Result<usize> {
-            let timeout_ms = match timeout {
-                None => -1,
-                Some(t) => {
-                    if t == Duration::from_millis(0) {
-                        0
-                    } else {
-                        t.max(Duration::from_millis(1))
-                            .as_millis()
-                            .try_into()
-                            .unwrap_or(libc::c_int::max_value())
-                    }
-                }
-            };
-            events.len = syscall!(epoll_wait(
-                self.handle,
-                events.list.as_mut_ptr(),
-                events.list.len() as libc::c_int,
-                timeout_ms,
-            ))? as usize;
-            Ok(events.len)
-        }
-        pub fn notify(&self) -> io::Result<()> {
-            unsafe {
-                // This errors if a notification has already been posted, but that's okay.
-                winapi::um::ioapiset::PostQueuedCompletionStatus(
-                    self.handle as winapi::um::winnt::HANDLE,
-                    0,
-                    0,
-                    ptr::null_mut(),
-                );
-            }
-            Ok(())
-        }
-    }
-    struct As(RawSocket);
-    impl AsRawSocket for As {
-        fn as_raw_socket(&self) -> RawSocket {
-            self.0
-        }
-    }
-    const READ_FLAGS: u32 =
-        we::EPOLLIN | we::EPOLLRDHUP | we::EPOLLHUP | we::EPOLLERR | we::EPOLLPRI;
-    const WRITE_FLAGS: u32 = we::EPOLLOUT | we::EPOLLHUP | we::EPOLLERR;
-
-    pub struct Events {
-        list: Box<[we::epoll_event]>,
-        len: usize,
-    }
-    unsafe impl Send for Events {}
-    unsafe impl Sync for Events {}
-    impl Events {
-        pub fn new() -> Events {
-            let ev = we::epoll_event {
-                events: 0,
-                data: we::epoll_data { u64: 0 },
-            };
-            Events {
-                list: vec![ev; 1000].into_boxed_slice(),
-                len: 0,
-            }
-        }
-        pub fn iter(&self) -> impl Iterator<Item = Event> + '_ {
-            self.list[..self.len].iter().map(|ev| Event {
-                readable: (ev.events & READ_FLAGS) != 0,
-                writable: (ev.events & WRITE_FLAGS) != 0,
-                key: unsafe { ev.data.u64 } as usize,
-            })
-        }
-    }
-    pub struct Event {
-        pub readable: bool,
-        pub writable: bool,
-        pub key: usize,
     }
 }
