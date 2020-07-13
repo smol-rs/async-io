@@ -341,11 +341,15 @@ fn tcp_duplex() -> io::Result<()> {
 #[test]
 fn close() -> io::Result<()> {
     block_on(async {
-        let (mut reader, mut writer) = Async::<UnixStream>::pair()?;
-        let mut buf = Vec::new();
+        let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+        let addr = listener.get_ref().local_addr()?;
+        let ((mut reader, _), mut writer) =
+            future::try_join(listener.accept(), Async::<TcpStream>::connect(addr)).await?;
 
         // The writer must be closed in order for `read_to_end()` to finish.
+        let mut buf = Vec::new();
         future::try_join(reader.read_to_end(&mut buf), writer.close()).await?;
+
         Ok(())
     })
 }
