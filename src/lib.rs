@@ -623,8 +623,8 @@ impl<T: Write> AsyncWrite for Async<T> {
         poll_once(cx, self.write_with_mut(|io| io.flush()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_flush(cx)
+    fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(self.source.shutdown_write())
     }
 }
 
@@ -652,8 +652,8 @@ where
         poll_once(cx, self.write_with(|io| (&*io).flush()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        self.poll_flush(cx)
+    fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Poll::Ready(self.source.shutdown_write())
     }
 }
 

@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use async_io::{Async, Timer};
 use blocking::block_on;
-use futures::{AsyncReadExt, AsyncWriteExt, StreamExt};
+use futures::{future, AsyncReadExt, AsyncWriteExt, StreamExt};
 #[cfg(unix)]
 use tempfile::tempdir;
 
@@ -334,6 +334,18 @@ fn tcp_duplex() -> io::Result<()> {
         r1.await?;
         w2.await?;
 
+        Ok(())
+    })
+}
+
+#[test]
+fn close() -> io::Result<()> {
+    block_on(async {
+        let (mut reader, mut writer) = Async::<UnixStream>::pair()?;
+        let mut buf = Vec::new();
+
+        // The writer must be closed in order for `read_to_end()` to finish.
+        future::try_join(reader.read_to_end(&mut buf), writer.close()).await?;
         Ok(())
     })
 }

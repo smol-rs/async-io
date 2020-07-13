@@ -7,11 +7,12 @@
 use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
-use std::mem;
+use std::mem::{self, ManuallyDrop};
+use std::net::{Shutdown, TcpStream};
 #[cfg(unix)]
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{FromRawFd, RawFd};
 #[cfg(windows)]
-use std::os::windows::io::RawSocket;
+use std::os::windows::io::{FromRawSocket, RawSocket};
 use std::panic;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -738,5 +739,22 @@ impl Source {
             Poll::Pending
         })
         .await
+    }
+
+    /// Shuts down the write side of the socket.
+    ///
+    /// If this source is not a socket, the `shutdown` syscall error is ignored.
+    pub(crate) fn shutdown_write(&self) -> io::Result<()> {
+        // This may not be a TCP stream, but that's okay - all we do is call `shutdown()` on it.
+        #[cfg(unix)]
+        let stream = unsafe { ManuallyDrop::new(TcpStream::from_raw_fd(self.raw)) };
+        #[cfg(windows)]
+        let stream = unsafe { ManuallyDrop::new(TcpStream::from_raw_socket(self.raw)) };
+
+        // The only actual error may be ENOTCONN.
+        match stream.shutdown(Shutdown::Write) {
+            Err(err) if err.kind() == io::ErrorKind::NotConnected => Err(err),
+            _ => Ok(()),
+        }
     }
 }
