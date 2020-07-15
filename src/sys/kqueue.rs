@@ -95,7 +95,7 @@ impl Reactor {
             libc::kevent {
                 ident: fd as _,
                 filter: libc::EVFILT_READ,
-                flags: flags,
+                flags,
                 fflags: 0,
                 data: 0,
                 udata: 0 as _,
@@ -103,7 +103,7 @@ impl Reactor {
             libc::kevent {
                 ident: fd as _,
                 filter: libc::EVFILT_WRITE,
-                flags: flags,
+                flags,
                 fflags: 0,
                 data: 0,
                 udata: 0 as _,

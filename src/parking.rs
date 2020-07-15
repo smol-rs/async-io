@@ -97,6 +97,12 @@ impl Drop for Parker {
     }
 }
 
+impl Default for Parker {
+    fn default() -> Parker {
+        Parker::new()
+    }
+}
+
 impl fmt::Debug for Parker {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.pad("Parker { .. }")
