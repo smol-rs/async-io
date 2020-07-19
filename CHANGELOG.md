@@ -1,3 +1,7 @@
+# Version 0.4.7
+
+- Simplify dependencies for faster compilation.
+
 # Version 0.4.6
 
 - Update doc comment on `Unblock`.
