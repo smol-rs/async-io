@@ -30,7 +30,8 @@
 //!
 //! ```no_run
 //! use blocking::{block_on, unblock};
-//! use std::{fs, io};
+//! use futures_lite::*;
+//! use std::fs;
 //!
 //! block_on(async {
 //!     let contents = unblock!(fs::read_to_string("file.txt"))?;
@@ -43,14 +44,14 @@
 //!
 //! ```no_run
 //! use blocking::{block_on, Unblock};
+//! use futures_lite::*;
 //! use std::fs::File;
-//! use std::io::{self, stdout};
 //!
 //! block_on(async {
 //!     let input = Unblock::new(File::open("file.txt")?);
-//!     let mut output = Unblock::new(stdout());
+//!     let mut output = Unblock::new(std::io::stdout());
 //!
-//!     futures::io::copy(input, &mut output).await?;
+//!     io::copy(input, &mut output).await?;
 //!     io::Result::Ok(())
 //! });
 //! ```
@@ -59,8 +60,8 @@
 //!
 //! ```no_run
 //! use blocking::{block_on, Unblock};
-//! use futures::prelude::*;
-//! use std::{fs, io};
+//! use futures_lite::*;
+//! use std::fs;
 //!
 //! block_on(async {
 //!     let mut dir = Unblock::new(fs::read_dir(".")?);
@@ -75,9 +76,9 @@
 //!
 //! ```
 //! use blocking::BlockOn;
-//! use futures::stream;
+//! use futures_lite::*;
 //!
-//! let stream = stream::once(async { 7 });
+//! let stream = stream::once(7);
 //! let mut iter = BlockOn::new(Box::pin(stream));
 //!
 //! assert_eq!(iter.next(), Some(7));
@@ -101,15 +102,9 @@ use std::task::{Context, Poll, Waker};
 use std::thread;
 use std::time::Duration;
 
-use futures_channel::{mpsc, oneshot};
-use futures_util::future::{self, Future};
-use futures_util::io::{
-    AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt, AsyncWrite, AsyncWriteExt,
-};
-use futures_util::sink::SinkExt;
-use futures_util::stream::{self, Stream, StreamExt};
-use futures_util::task::{waker_ref, ArcWake, AtomicWaker};
-use futures_util::{pin_mut, ready};
+use async_channel::{bounded, Receiver};
+use atomic_waker::AtomicWaker;
+use futures_lite::*;
 use once_cell::sync::Lazy;
 use parking::Parker;
 use waker_fn::waker_fn;
@@ -138,19 +133,16 @@ impl Runnable {
         // Set if the task is currently running.
         const RUNNING: usize = 0b10;
 
-        impl ArcWake for Runnable {
-            fn wake_by_ref(runnable: &Arc<Self>) {
-                if runnable.state.fetch_or(WOKEN, Ordering::SeqCst) == 0 {
-                    EXECUTOR.schedule(runnable.clone());
-                }
-            }
-        }
-
         // The state is now "not woken" and "running".
         self.state.store(RUNNING, Ordering::SeqCst);
 
         // Poll the future.
-        let waker = waker_ref(&self);
+        let this = self.clone();
+        let waker = waker_fn(move || {
+            if this.state.fetch_or(WOKEN, Ordering::SeqCst) == 0 {
+                EXECUTOR.schedule(this.clone());
+            }
+        });
         let cx = &mut Context::from_waker(&waker);
         let poll = self.future.try_lock().unwrap().as_mut().poll(cx);
 
@@ -204,9 +196,9 @@ impl Executor {
     /// Returns a [`Task`] handle for the spawned task.
     fn spawn<T: Send + 'static>(future: impl Future<Output = T> + Send + 'static) -> Task<T> {
         // Wrap the future into one that sends the output into a channel.
-        let (s, r) = oneshot::channel();
+        let (s, r) = bounded(1);
         let future = async move {
-            let _ = s.send(future.await);
+            let _ = s.send(future.await).await;
         };
 
         // Create a task and schedule it for execution.
@@ -217,7 +209,7 @@ impl Executor {
         EXECUTOR.schedule(runnable);
 
         // Return a handle that retrieves the output of the future.
-        Box::pin(async { r.await.expect("future has panicked") })
+        Box::pin(async move { r.recv().await.expect("future has panicked") })
     }
 
     /// Runs the main loop on the current thread.
@@ -308,7 +300,7 @@ impl Executor {
 /// ```
 pub fn block_on<T>(future: impl Future<Output = T>) -> T {
     // Pin the future on the stack.
-    pin_mut!(future);
+    pin!(future);
 
     // Creates a parker and an associated waker that unparks it.
     fn parker_and_waker() -> (Parker, Waker) {
@@ -400,9 +392,9 @@ impl<T> BlockOn<T> {
     ///
     /// ```
     /// use blocking::BlockOn;
-    /// use futures::stream;
+    /// use futures_lite::*;
     ///
-    /// let stream = stream::once(async { 7 });
+    /// let stream = stream::once(7);
     /// let iter = BlockOn::new(Box::pin(stream));
     /// ```
     pub fn new(io: T) -> BlockOn<T> {
@@ -415,9 +407,9 @@ impl<T> BlockOn<T> {
     ///
     /// ```
     /// use blocking::BlockOn;
-    /// use futures::prelude::*;
+    /// use futures_lite::*;
     ///
-    /// let stream = stream::once(async { 7 });
+    /// let stream = stream::once(7);
     /// let iter = BlockOn::new(Box::pin(stream));
     ///
     /// println!("{:?}", iter.get_ref().size_hint());
@@ -432,9 +424,9 @@ impl<T> BlockOn<T> {
     ///
     /// ```
     /// use blocking::{block_on, BlockOn};
-    /// use futures::prelude::*;
+    /// use futures_lite::*;
     ///
-    /// let stream = stream::once(async { 7 });
+    /// let stream = stream::once(7);
     /// let mut iter = BlockOn::new(Box::pin(stream));
     ///
     /// let val = block_on(async {
@@ -455,9 +447,9 @@ impl<T> BlockOn<T> {
     ///
     /// ```
     /// use blocking::BlockOn;
-    /// use futures::stream;
+    /// use futures_lite::*;
     ///
-    /// let stream = stream::once(async { 7 });
+    /// let stream = stream::once(7);
     /// let iter = BlockOn::new(Box::pin(stream));
     ///
     /// // The inner pinned stream.
@@ -528,12 +520,12 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    let (sender, receiver) = oneshot::channel();
+    let (sender, receiver) = bounded(1);
     let task = Executor::spawn(async move {
-        let _ = sender.send(f());
+        let _ = sender.try_send(f());
     });
     task.await;
-    receiver.await.expect("future has panicked")
+    receiver.recv().await.expect("future has panicked")
 }
 
 /// Moves blocking code onto the thread pool.
@@ -585,7 +577,7 @@ macro_rules! unblock {
 ///
 /// ```
 /// use blocking::Unblock;
-/// use futures::prelude::*;
+/// use futures_lite::*;
 /// use std::io::stdout;
 ///
 /// # blocking::block_on(async {
@@ -678,14 +670,17 @@ impl<T> Unblock<T> {
             }
         };
 
-        let (sender, receiver) = oneshot::channel();
+        let (sender, receiver) = bounded(1);
         let task = Executor::spawn(async move {
-            let _ = sender.send(op(&mut t));
+            let _ = sender.try_send(op(&mut t));
             t
         });
         self.0 = State::WithMut(task);
 
-        receiver.await.expect("`with_mut()` operation has panicked")
+        receiver
+            .recv()
+            .await
+            .expect("`with_mut()` operation has panicked")
     }
 
     /// Extracts the inner blocking I/O handle.
@@ -697,7 +692,7 @@ impl<T> Unblock<T> {
     ///
     /// ```no_run
     /// use blocking::Unblock;
-    /// use futures::prelude::*;
+    /// use futures_lite::*;
     /// use std::fs::File;
     ///
     /// # blocking::block_on(async {
@@ -873,7 +868,7 @@ where
                     // This channel capacity seems to work well in practice. If it's too low, there
                     // will be too much synchronization between tasks. If too high, memory
                     // consumption increases.
-                    let (mut sender, receiver) = mpsc::channel(8 * 1024); // 8192 items
+                    let (sender, receiver) = bounded(8 * 1024); // 8192 items
 
                     // Spawn a blocking task that runs the iterator and returns it when done.
                     let task = Executor::spawn(async move {
@@ -886,14 +881,12 @@ where
                     });
 
                     // Move into the busy state and poll again.
-                    self.0 = State::Streaming(Some(Box::new(receiver.fuse())), task);
+                    self.0 = State::Streaming(Some(Box::new(receiver)), task);
                 }
 
                 // If streaming, receive an item.
                 State::Streaming(Some(any), task) => {
-                    let receiver = any
-                        .downcast_mut::<stream::Fuse<mpsc::Receiver<T::Item>>>()
-                        .unwrap();
+                    let receiver = any.downcast_mut::<Receiver<T::Item>>().unwrap();
 
                     // Poll the channel.
                     let opt = ready!(Pin::new(receiver).poll_next(cx));

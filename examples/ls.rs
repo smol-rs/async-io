@@ -1,4 +1,4 @@
-//! Lists directory contents.
+//! Lists contents of a directory.
 //!
 //! Run with:
 //!
@@ -8,10 +8,9 @@
 
 use std::env;
 use std::fs;
-use std::io;
 
 use blocking::{block_on, Unblock};
-use futures::prelude::*;
+use futures_lite::*;
 
 fn main() -> io::Result<()> {
     let path = env::args().nth(1).unwrap_or(".".into());
