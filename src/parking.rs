@@ -59,6 +59,8 @@ impl Parker {
             },
         };
         PARKER_COUNT.fetch_add(1, Ordering::SeqCst);
+        // We use the Reactor in Drop, so ensure it's properly initialized since it's lazy
+        Reactor::get();
         parker
     }
 
