@@ -55,14 +55,14 @@ Read a file and pipe its contents to stdout:
 
 ```rust
 use blocking::{block_on, Unblock};
+use futures_lite::*;
 use std::fs::File;
-use std::io::{self, stdout};
 
 block_on(async {
     let input = Unblock::new(File::open("file.txt")?);
-    let mut output = Unblock::new(stdout());
+    let mut output = Unblock::new(std::io::stdout());
 
-    futures::io::copy(input, &mut output).await?;
+    io::copy(input, &mut output).await?;
     io::Result::Ok(())
 });
 ```
@@ -71,8 +71,8 @@ Iterate over the contents of a directory:
 
 ```rust
 use blocking::{block_on, Unblock};
-use futures::prelude::*;
-use std::{fs, io};
+use futures_lite::*;
+use std::fs;
 
 block_on(async {
     let mut dir = Unblock::new(fs::read_dir(".")?);
@@ -87,9 +87,9 @@ Convert a stream into an iterator:
 
 ```rust
 use blocking::BlockOn;
-use futures::stream;
+use futures_lite::*;
 
-let stream = stream::once(async { 7 });
+let stream = stream::once(7);
 let mut iter = BlockOn::new(Box::pin(stream));
 
 assert_eq!(iter.next(), Some(7));
