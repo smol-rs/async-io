@@ -20,7 +20,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use concurrent_queue::ConcurrentQueue;
-use futures_util::future;
+use futures_lite::*;
 use once_cell::sync::Lazy;
 use vec_arena::Arena;
 

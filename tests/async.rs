@@ -9,7 +9,7 @@ use std::time::Duration;
 
 use async_io::{Async, Timer};
 use blocking::block_on;
-use futures::{future, AsyncReadExt, AsyncWriteExt, StreamExt};
+use futures_lite::*;
 #[cfg(unix)]
 use tempfile::tempdir;
 

@@ -26,9 +26,7 @@ use std::{
     path::Path,
 };
 
-use futures_io::{AsyncRead, AsyncWrite};
-use futures_util::future;
-use futures_util::stream::{self, Stream};
+use futures_lite::*;
 use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::parking::{Reactor, Source};
@@ -431,7 +429,7 @@ impl<T> Async<T> {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
-            futures_util::ready!(poll_once(cx, self.readable()))?;
+            ready!(poll_once(cx, self.readable()))?;
             Poll::Pending
         })
         .await
@@ -469,7 +467,7 @@ impl<T> Async<T> {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
-            futures_util::ready!(poll_once(cx, self.readable()))?;
+            ready!(poll_once(cx, self.readable()))?;
             Poll::Pending
         })
         .await
@@ -505,7 +503,7 @@ impl<T> Async<T> {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
-            futures_util::ready!(poll_once(cx, self.writable()))?;
+            ready!(poll_once(cx, self.writable()))?;
             Poll::Pending
         })
         .await
@@ -544,7 +542,7 @@ impl<T> Async<T> {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
-            futures_util::ready!(poll_once(cx, self.writable()))?;
+            ready!(poll_once(cx, self.writable()))?;
             Poll::Pending
         })
         .await
@@ -1261,6 +1259,6 @@ impl Async<UnixDatagram> {
 
 /// Pins a future and then polls it.
 fn poll_once<T>(cx: &mut Context<'_>, fut: impl Future<Output = T>) -> Poll<T> {
-    futures_util::pin_mut!(fut);
+    pin!(fut);
     fut.poll(cx)
 }
