@@ -1,3 +1,7 @@
+# Version 0.1.4
+
+- Initialize the reactor in `Parker::new()`.
+
 # Version 0.1.3
 
 - Always use the last waker given to `Timer`.
