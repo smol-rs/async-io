@@ -49,6 +49,9 @@ pub struct Parker {
 impl Parker {
     /// Creates a new [`Parker`].
     pub fn new() -> Parker {
+        // Ensure `Reactor` is initialized now to prevent it from being initialized in `Drop`.
+        Reactor::get();
+
         let parker = Parker {
             unparker: Unparker {
                 inner: Arc::new(Inner {
@@ -59,8 +62,6 @@ impl Parker {
             },
         };
         PARKER_COUNT.fetch_add(1, Ordering::SeqCst);
-        // We use the Reactor in Drop, so ensure it's properly initialized since it's lazy
-        Reactor::get();
         parker
     }
 
