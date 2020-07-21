@@ -12,7 +12,7 @@ use std::mem;
 use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawSocket;
-use std::panic;
+use std::panic::{self, RefUnwindSafe, UnwindSafe};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::task::{Poll, Waker};
@@ -45,6 +45,9 @@ pub fn pair() -> (Parker, Unparker) {
 pub struct Parker {
     unparker: Unparker,
 }
+
+impl UnwindSafe for Parker {}
+impl RefUnwindSafe for Parker {}
 
 impl Parker {
     /// Creates a new [`Parker`].
@@ -116,6 +119,9 @@ impl fmt::Debug for Parker {
 pub struct Unparker {
     inner: Arc<Inner>,
 }
+
+impl UnwindSafe for Unparker {}
+impl RefUnwindSafe for Unparker {}
 
 impl Unparker {
     /// Atomically makes the token available if it is not already.
