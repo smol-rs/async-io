@@ -1,6 +1,6 @@
 [package]
 name = "blocking"
-version = "0.4.7"
+version = "0.5.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 description = "A thread pool for isolating blocking I/O in async programs"

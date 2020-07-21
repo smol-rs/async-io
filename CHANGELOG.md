@@ -1,3 +1,7 @@
+# Version 0.5.0
+
+- Simplify the API to just `unblock!` and `Unblock`.
+
 # Version 0.4.7
 
 - Simplify dependencies for faster compilation.
