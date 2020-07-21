@@ -1,3 +1,7 @@
+# Version 0.1.5
+
+- Make `Parker` and `Unparker` unwind-safe.
+
 # Version 0.1.4
 
 - Initialize the reactor in `Parker::new()`.
