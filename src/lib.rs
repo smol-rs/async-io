@@ -1,16 +1,8 @@
-//! Block on async code or await blocking code.
+//! A thread pool for isolating blocking I/O in async programs.
 //!
-//! To convert async to blocking, *block on* async code with [`block_on()`], [`block_on!`], or
-//! [`BlockOn`].
-//!
-//! To convert blocking to async, *unblock* blocking code with [`unblock()`], [`unblock!`], or
-//! [`Unblock`].
-//!
-//! # Thread pool
-//!
-//! Sometimes there's no way to avoid blocking I/O in async programs. Consider files or stdin,
-//! which have weak async support on modern operating systems. While [IOCP], [AIO], and [io_uring]
-//! are possible solutions, they're not always available or ideal.
+//! Sometimes there's no way to avoid blocking I/O. Consider files or stdin, which have weak async
+//! support on modern operating systems. While [IOCP], [AIO], and [io_uring] are possible
+//! solutions, they're not always available or ideal.
 //!
 //! Since blocking is not allowed inside futures, we must move blocking I/O onto a special thread
 //! pool provided by this crate. The pool dynamically spawns and stops threads depending on the
@@ -22,73 +14,67 @@
 //!
 //! [IOCP]: https://en.wikipedia.org/wiki/Input/output_completion_port
 //! [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html
-//! [io_uring]: https://lwn.net/Articles/776703/
+//! [io_uring]: https://lwn.net/Articles/776703
 //!
 //! # Examples
 //!
-//! Await a blocking file read with [`unblock!`]:
+//! Read the contents of a file:
 //!
 //! ```no_run
-//! use blocking::{block_on, unblock};
+//! use blocking::unblock;
 //! use futures_lite::*;
 //! use std::fs;
 //!
-//! block_on(async {
-//!     let contents = unblock!(fs::read_to_string("file.txt"))?;
-//!     println!("{}", contents);
-//!     io::Result::Ok(())
-//! });
+//! # future::block_on(async {
+//! let contents = unblock!(fs::read_to_string("file.txt"))?;
+//! println!("{}", contents);
+//! # io::Result::Ok(()) });
 //! ```
 //!
 //! Read a file and pipe its contents to stdout:
 //!
 //! ```no_run
-//! use blocking::{block_on, Unblock};
+//! use blocking::Unblock;
 //! use futures_lite::*;
 //! use std::fs::File;
 //!
-//! block_on(async {
-//!     let input = Unblock::new(File::open("file.txt")?);
-//!     let mut output = Unblock::new(std::io::stdout());
+//! # future::block_on(async {
+//! let input = Unblock::new(File::open("file.txt")?);
+//! let mut output = Unblock::new(std::io::stdout());
 //!
-//!     io::copy(input, &mut output).await?;
-//!     io::Result::Ok(())
-//! });
+//! io::copy(input, &mut output).await?;
+//! # io::Result::Ok(()) });
 //! ```
 //!
 //! Iterate over the contents of a directory:
 //!
 //! ```no_run
-//! use blocking::{block_on, Unblock};
+//! use blocking::Unblock;
 //! use futures_lite::*;
 //! use std::fs;
 //!
-//! block_on(async {
-//!     let mut dir = Unblock::new(fs::read_dir(".")?);
-//!     while let Some(item) = dir.next().await {
-//!         println!("{}", item?.file_name().to_string_lossy());
-//!     }
-//!     io::Result::Ok(())
-//! });
+//! # future::block_on(async {
+//! let mut dir = Unblock::new(fs::read_dir(".")?);
+//! while let Some(item) = dir.next().await {
+//!     println!("{}", item?.file_name().to_string_lossy());
+//! }
+//! # io::Result::Ok(()) });
 //! ```
 //!
-//! Convert a stream into an iterator:
+//! Spawn a process:
 //!
-//! ```
-//! use blocking::BlockOn;
-//! use futures_lite::*;
+//! ```no_run
+//! use blocking::unblock;
+//! use std::process::Command;
 //!
-//! let stream = stream::once(7);
-//! let mut iter = BlockOn::new(Box::pin(stream));
-//!
-//! assert_eq!(iter.next(), Some(7));
-//! assert_eq!(iter.next(), None);
+//! # futures_lite::future::block_on(async {
+//! let out = unblock!(Command::new("dir").output())?;
+//! # std::io::Result::Ok(()) });
 //! ```
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
 use std::any::Any;
-use std::cell::RefCell;
 use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Read, Seek, SeekFrom, Write};
@@ -98,7 +84,7 @@ use std::pin::Pin;
 use std::slice;
 use std::sync::atomic::{self, AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
@@ -106,7 +92,6 @@ use async_channel::{bounded, Receiver};
 use atomic_waker::AtomicWaker;
 use futures_lite::*;
 use once_cell::sync::Lazy;
-use parking::Parker;
 use waker_fn::waker_fn;
 
 /// Awaits the output of a spawned future.
@@ -285,262 +270,28 @@ impl Executor {
     }
 }
 
-/// Blocks the current thread on a future.
+/// Runs blocking code on a thread pool.
+///
+/// # Desugaring
+///
+/// Note that `unblock!(expr)` is syntax sugar for:
+///
+/// ```ignore
+/// Unblock::new(()).with_mut(move |_| expr).await
+/// ```
+///
+/// The `()` value is not used - this is just a cute trick to call [`Unblock::with_mut()`] with a
+/// closure on the thread pool.
 ///
 /// # Examples
 ///
-/// ```
-/// use blocking::block_on;
-///
-/// let val = block_on(async {
-///     1 + 2
-/// });
-///
-/// assert_eq!(val, 3);
-/// ```
-pub fn block_on<T>(future: impl Future<Output = T>) -> T {
-    // Pin the future on the stack.
-    pin!(future);
-
-    // Creates a parker and an associated waker that unparks it.
-    fn parker_and_waker() -> (Parker, Waker) {
-        let parker = Parker::new();
-        let unparker = parker.unparker();
-        let waker = waker_fn(move || unparker.unpark());
-        (parker, waker)
-    }
-
-    thread_local! {
-        // Cached parker and waker for efficiency.
-        static CACHE: RefCell<(Parker, Waker)> = RefCell::new(parker_and_waker());
-    }
-
-    CACHE.with(|cache| {
-        // Try grabbing the cached parker and waker.
-        match cache.try_borrow_mut() {
-            Ok(cache) => {
-                // Use the cached parker and waker.
-                let (parker, waker) = &*cache;
-                let cx = &mut Context::from_waker(&waker);
-
-                // Keep polling until the future is ready.
-                loop {
-                    match future.as_mut().poll(cx) {
-                        Poll::Ready(output) => return output,
-                        Poll::Pending => parker.park(),
-                    }
-                }
-            }
-            Err(_) => {
-                // Looks like this is a recursive `block_on()` call.
-                // Create a fresh parker and waker.
-                let (parker, waker) = parker_and_waker();
-                let cx = &mut Context::from_waker(&waker);
-
-                // Keep polling until the future is ready.
-                loop {
-                    match future.as_mut().poll(cx) {
-                        Poll::Ready(output) => return output,
-                        Poll::Pending => parker.park(),
-                    }
-                }
-            }
-        }
-    })
-}
-
-/// Blocks the current thread on async code.
-///
-/// Note that `block_on!(expr)` is just syntax sugar for `block_on(async move { expr })`.
-///
-/// # Examples
-///
-/// ```
-/// use blocking::block_on;
-///
-/// let val = block_on! {
-///     1 + 2
-/// };
-///
-/// assert_eq!(val, 3);
-/// ```
-#[macro_export]
-macro_rules! block_on {
-    ($($code:tt)*) => {
-        $crate::block_on(async move { $($code)* })
-    };
-}
-
-/// Blocking interface for async I/O.
-///
-/// Sometimes async I/O needs to be used in a blocking manner. If calling [`block_on()`] manually
-/// all the time becomes too tedious, use this type for more convenient blocking on async I/O
-/// operations.
-///
-/// This type implements traits [`Iterator`], [`Read`], [`Write`], or [`Seek`] if the inner type
-/// implements [`Stream`], [`AsyncRead`], [`AsyncWrite`], or [`AsyncSeek`], respectively.
-///
-/// If writing data through the [`Write`] trait, make sure to flush before dropping the [`BlockOn`]
-/// handle or some buffered data might get lost.
-#[derive(Debug)]
-pub struct BlockOn<T>(T);
-
-impl<T> BlockOn<T> {
-    /// Wraps an async I/O handle into a blocking interface.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blocking::BlockOn;
-    /// use futures_lite::*;
-    ///
-    /// let stream = stream::once(7);
-    /// let iter = BlockOn::new(Box::pin(stream));
-    /// ```
-    pub fn new(io: T) -> BlockOn<T> {
-        BlockOn(io)
-    }
-
-    /// Gets a reference to the async I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blocking::BlockOn;
-    /// use futures_lite::*;
-    ///
-    /// let stream = stream::once(7);
-    /// let iter = BlockOn::new(Box::pin(stream));
-    ///
-    /// println!("{:?}", iter.get_ref().size_hint());
-    /// ```
-    pub fn get_ref(&self) -> &T {
-        &self.0
-    }
-
-    /// Gets a mutable reference to the async I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blocking::{block_on, BlockOn};
-    /// use futures_lite::*;
-    ///
-    /// let stream = stream::once(7);
-    /// let mut iter = BlockOn::new(Box::pin(stream));
-    ///
-    /// let val = block_on(async {
-    ///     // This is async `next()` on the inner stream.
-    ///     iter.get_mut().next().await
-    /// });
-    ///
-    /// assert_eq!(val, Some(7));
-    /// assert_eq!(iter.next(), None);
-    /// ```
-    pub fn get_mut(&mut self) -> &mut T {
-        &mut self.0
-    }
-
-    /// Extracts the inner async I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use blocking::BlockOn;
-    /// use futures_lite::*;
-    ///
-    /// let stream = stream::once(7);
-    /// let iter = BlockOn::new(Box::pin(stream));
-    ///
-    /// // The inner pinned stream.
-    /// let stream = iter.into_inner();
-    /// ```
-    pub fn into_inner(self) -> T {
-        self.0
-    }
-}
-
-impl<T: Stream + Unpin> Iterator for BlockOn<T> {
-    type Item = T::Item;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        block_on(self.0.next())
-    }
-}
-
-impl<T: AsyncRead + Unpin> Read for BlockOn<T> {
-    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
-        block_on(self.0.read(buf))
-    }
-}
-
-impl<T: AsyncWrite + Unpin> Write for BlockOn<T> {
-    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        block_on(self.0.write(buf))
-    }
-
-    fn flush(&mut self) -> io::Result<()> {
-        block_on(self.0.flush())
-    }
-}
-
-impl<T: AsyncSeek + Unpin> Seek for BlockOn<T> {
-    fn seek(&mut self, pos: SeekFrom) -> io::Result<u64> {
-        block_on(self.0.seek(pos))
-    }
-}
-
-/// Moves a blocking closure onto the thread pool.
-///
-/// # Examples
-///
-/// Read a file into a string:
+/// Read the contents of a file.
 ///
 /// ```no_run
 /// use blocking::unblock;
 /// use std::fs;
 ///
-/// # blocking::block_on(async {
-/// let contents = unblock(|| fs::read_to_string("file.txt")).await?;
-/// # std::io::Result::Ok(()) });
-/// ```
-///
-/// Spawn a process:
-///
-/// ```no_run
-/// use blocking::unblock;
-/// use std::process::Command;
-///
-/// # blocking::block_on(async {
-/// let out = unblock(|| Command::new("dir").output()).await?;
-/// # std::io::Result::Ok(()) });
-/// ```
-pub async fn unblock<T, F>(f: F) -> T
-where
-    F: FnOnce() -> T + Send + 'static,
-    T: Send + 'static,
-{
-    let (sender, receiver) = bounded(1);
-    let task = Executor::spawn(async move {
-        let _ = sender.try_send(f());
-    });
-    task.await;
-    receiver.recv().await.expect("future has panicked")
-}
-
-/// Moves blocking code onto the thread pool.
-///
-/// Note that `unblock!(expr)` is just syntax sugar for `unblock(move || expr).await`.
-///
-/// # Examples
-///
-/// Read a file into a string:
-///
-/// ```no_run
-/// use blocking::unblock;
-/// use std::fs;
-///
-/// # blocking::block_on(async {
+/// # futures_lite::future::block_on(async {
 /// let contents = unblock!(fs::read_to_string("file.txt"))?;
 /// # std::io::Result::Ok(()) });
 /// ```
@@ -551,20 +302,20 @@ where
 /// use blocking::unblock;
 /// use std::process::Command;
 ///
-/// # blocking::block_on(async {
+/// # futures_lite::future::block_on(async {
 /// let out = unblock!(Command::new("dir").output())?;
 /// # std::io::Result::Ok(()) });
 /// ```
 #[macro_export]
 macro_rules! unblock {
     ($($code:tt)*) => {
-        $crate::unblock(move || { $($code)* }).await
+        $crate::Unblock::new(()).with_mut(move |_| { $($code)* }).await
     };
 }
 
-/// Async interface for blocking I/O.
+/// Runs blocking I/O on a thread pool.
 ///
-/// Blocking I/O must be isolated from async code. This type moves blocking operations onto a
+/// Blocking I/O must be isolated from async code. This type moves blocking I/O operations onto a
 /// special thread pool while exposing a familiar async interface.
 ///
 /// This type implements traits [`Stream`], [`AsyncRead`], [`AsyncWrite`], or [`AsyncSeek`] if the
@@ -578,10 +329,9 @@ macro_rules! unblock {
 /// ```
 /// use blocking::Unblock;
 /// use futures_lite::*;
-/// use std::io::stdout;
 ///
-/// # blocking::block_on(async {
-/// let mut stdout = Unblock::new(stdout());
+/// # futures_lite::future::block_on(async {
+/// let mut stdout = Unblock::new(std::io::stdout());
 /// stdout.write_all(b"Hello world!").await?;
 /// stdout.flush().await?;
 /// # std::io::Result::Ok(()) });
@@ -589,15 +339,14 @@ macro_rules! unblock {
 pub struct Unblock<T>(State<T>);
 
 impl<T> Unblock<T> {
-    /// Wraps a blocking I/O handle into an async interface.
+    /// Wraps a blocking I/O handle into the async [`Unblock`] interface.
     ///
     /// # Examples
     ///
     /// ```no_run
     /// use blocking::Unblock;
-    /// use std::io::stdin;
     ///
-    /// let stdin = Unblock::new(stdin());
+    /// let stdin = Unblock::new(std::io::stdin());
     /// ```
     pub fn new(io: T) -> Unblock<T> {
         Unblock(State::Idle(Some(Box::new(io))))
@@ -614,7 +363,7 @@ impl<T> Unblock<T> {
     /// use blocking::Unblock;
     /// use std::fs::File;
     ///
-    /// # blocking::block_on(async {
+    /// # futures_lite::future::block_on(async {
     /// let mut file = Unblock::new(File::create("file.txt")?);
     /// let metadata = file.get_mut().await.metadata()?;
     /// # std::io::Result::Ok(()) });
@@ -644,7 +393,7 @@ impl<T> Unblock<T> {
     /// use blocking::Unblock;
     /// use std::fs::File;
     ///
-    /// # blocking::block_on(async {
+    /// # futures_lite::future::block_on(async {
     /// let mut file = Unblock::new(File::create("file.txt")?);
     /// let metadata = file.with_mut(|f| f.metadata()).await?;
     /// # std::io::Result::Ok(()) });
@@ -695,7 +444,7 @@ impl<T> Unblock<T> {
     /// use futures_lite::*;
     /// use std::fs::File;
     ///
-    /// # blocking::block_on(async {
+    /// # futures_lite::future::block_on(async {
     /// let mut file = Unblock::new(File::create("file.txt")?);
     /// file.write_all(b"Hello world!").await?;
     ///

@@ -9,13 +9,13 @@
 use std::env;
 use std::fs;
 
-use blocking::{block_on, Unblock};
+use blocking::Unblock;
 use futures_lite::*;
 
 fn main() -> io::Result<()> {
     let path = env::args().nth(1).unwrap_or(".".into());
 
-    block_on(async {
+    future::block_on(async {
         let mut dir = Unblock::new(fs::read_dir(path)?);
 
         while let Some(item) = dir.next().await {

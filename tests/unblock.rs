@@ -3,7 +3,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
-use blocking::{block_on, unblock, Unblock};
+use blocking::{unblock, Unblock};
 use futures_lite::*;
 
 #[test]
@@ -11,19 +11,19 @@ fn sleep() {
     let dur = Duration::from_secs(1);
     let start = Instant::now();
 
-    block_on! {
-        let f = unblock(move || thread::sleep(dur));
+    future::block_on(async {
+        let f = async { unblock!(thread::sleep(dur)) };
         pin!(f);
         assert!(future::poll_once(&mut f).await.is_none());
         f.await;
-    }
+    });
 
     assert!(start.elapsed() >= dur);
 }
 
 #[test]
 fn chan() {
-    block_on! {
+    future::block_on(async {
         let (s, r) = mpsc::sync_channel::<i32>(100);
         let handle = thread::spawn(move || {
             for i in 0..100_000 {
@@ -38,12 +38,12 @@ fn chan() {
 
         handle.join().unwrap();
         assert!(r.next().await.is_none());
-    }
+    })
 }
 
 #[test]
 fn read() {
-    block_on! {
+    future::block_on(async {
         let mut v1 = vec![0u8; 20_000_000];
         for i in 0..v1.len() {
             v1[i] = i as u8;
@@ -55,12 +55,12 @@ fn read() {
 
         let v1 = v1.into_inner().await.into_inner();
         assert!(v1 == v2);
-    }
+    })
 }
 
 #[test]
 fn write() {
-    block_on! {
+    future::block_on(async {
         let mut v1 = vec![0u8; 20_000_000];
         for i in 0..v1.len() {
             v1[i] = i as u8;
@@ -72,12 +72,12 @@ fn write() {
 
         let v2 = v2.into_inner().await.into_inner();
         assert!(v1 == v2);
-    }
+    })
 }
 
 #[test]
 fn seek() {
-    block_on! {
+    future::block_on(async {
         let len = 1_000;
         let mut v = vec![0u8; len];
         for i in 0..len {
@@ -91,5 +91,5 @@ fn seek() {
         let mut byte = [0u8];
         v.read(&mut byte).await.unwrap();
         assert_eq!(byte[0], 15);
-    }
+    })
 }
