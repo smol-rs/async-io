@@ -285,7 +285,7 @@ impl Executor {
 ///
 /// # Examples
 ///
-/// Read the contents of a file.
+/// Read the contents of a file:
 ///
 /// ```no_run
 /// use blocking::unblock;
