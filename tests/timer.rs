@@ -1,4 +1,6 @@
 use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -30,8 +32,8 @@ fn smoke() {
 
 #[test]
 fn poll_across_tasks() {
-    let before = future::block_on(async {
-        let now = Instant::now();
+    future::block_on(async {
+        let start = Instant::now();
         let (sender, receiver) = async_channel::bounded(1);
 
         let task1 = spawn(async move {
@@ -54,8 +56,28 @@ fn poll_across_tasks() {
 
         task1.await;
         task2.await;
-        now
-    });
 
-    assert!(before.elapsed() >= Duration::from_secs(1));
+        assert!(start.elapsed() >= Duration::from_secs(1));
+    });
+}
+
+#[test]
+fn reset() {
+    future::block_on(async {
+        let start = Instant::now();
+        let timer = Arc::new(Mutex::new(Timer::new(Duration::from_secs(10))));
+
+        thread::spawn({
+            let timer = timer.clone();
+            move || {
+                thread::sleep(Duration::from_secs(1));
+                timer.lock().unwrap().reset(Duration::from_secs(2));
+            }
+        });
+
+        future::poll_fn(|cx| Pin::new(&mut *timer.lock().unwrap()).poll(cx)).await;
+
+        assert!(start.elapsed() >= Duration::from_secs(2));
+        assert!(start.elapsed() < Duration::from_secs(10));
+    });
 }

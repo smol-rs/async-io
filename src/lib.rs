@@ -34,7 +34,7 @@ use crate::parking::{Reactor, Source};
 pub mod parking;
 mod sys;
 
-/// Expires after a duration of time.
+/// A timer that expires after a duration of time.
 ///
 /// Timers are futures that output the [`Instant`] at which they fired.
 ///
@@ -66,7 +66,7 @@ pub struct Timer {
 }
 
 impl Timer {
-    /// Fires after the specified duration of time.
+    /// Creates a timer that expires after the given duration of time.
     ///
     /// # Examples
     ///
@@ -82,6 +82,38 @@ impl Timer {
         Timer {
             id_and_waker: None,
             when: Instant::now() + dur,
+        }
+    }
+
+    /// Resets the timer to expire after the new duration of time.
+    ///
+    /// Note that resetting a timer is different from creating a new timer because
+    /// [`reset()`][`Timer::reset()`] does not remove the waker associated with the task that is
+    /// polling the timer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use std::time::Duration;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let mut t = Timer::new(Duration::from_secs(1));
+    /// t.reset(Duration::from_millis(100));
+    /// # });
+    /// ```
+    pub fn reset(&mut self, dur: Duration) {
+        if let Some((id, _)) = self.id_and_waker.as_ref() {
+            // Deregister the timer from the reactor.
+            Reactor::get().remove_timer(self.when, *id);
+        }
+
+        // Update the timeout.
+        self.when = Instant::now() + dur;
+
+        if let Some((id, waker)) = self.id_and_waker.as_mut() {
+            // Re-register the timer with the new timeout.
+            *id = Reactor::get().insert_timer(self.when, waker);
         }
     }
 }
