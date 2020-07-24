@@ -60,7 +60,7 @@ impl Reactor {
         // Set up eventfd.
         let event_fd = syscall!(eventfd(0, libc::EFD_CLOEXEC | libc::EFD_NONBLOCK))?;
         let reactor = Reactor { epoll_fd, event_fd };
-        reactor.insert(event_fd, NOTIFY_KEY)?;
+        reactor.insert(event_fd)?;
         reactor.interest(event_fd, NOTIFY_KEY, true, false)?;
 
         Ok(reactor)
