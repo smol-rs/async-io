@@ -401,12 +401,12 @@ impl Reactor {
         #[cfg(unix)] raw: RawFd,
         #[cfg(windows)] raw: RawSocket,
     ) -> io::Result<Arc<Source>> {
+        // Register the file descriptor.
+        self.sys.insert(raw)?;
+
+        // Create an I/O source for this file descriptor.
         let mut sources = self.sources.lock().unwrap();
         let key = sources.next_vacant();
-
-        // Create a source and register it.
-        self.sys.insert(raw, key)?;
-
         let source = Arc::new(Source {
             raw,
             key,

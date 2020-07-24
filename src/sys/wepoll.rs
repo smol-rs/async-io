@@ -1,4 +1,4 @@
-//! Raw bindings to wepoll (Windows).
+//! Bindings to wepoll (Windows).
 
 use std::convert::TryInto;
 use std::io;
@@ -11,6 +11,7 @@ use winapi::um::winsock2;
 
 use crate::sys::Event;
 
+/// Calls a wepoll function and results in `io::Result`.
 macro_rules! wepoll {
     ($fn:ident $args:tt) => {{
         let res = unsafe { we::$fn $args };
@@ -22,6 +23,7 @@ macro_rules! wepoll {
     }};
 }
 
+/// The I/O reactor.
 pub struct Reactor {
     handle: we::HANDLE,
 }
@@ -30,6 +32,7 @@ unsafe impl Send for Reactor {}
 unsafe impl Sync for Reactor {}
 
 impl Reactor {
+    /// Creates a new reactor.
     pub fn new() -> io::Result<Reactor> {
         let handle = unsafe { we::epoll_create1(0) };
         if handle.is_null() {
@@ -38,7 +41,9 @@ impl Reactor {
         Ok(Reactor { handle })
     }
 
-    pub fn insert(&self, sock: RawSocket, key: usize) -> io::Result<()> {
+    /// Inserts a socket.
+    pub fn insert(&self, sock: RawSocket) -> io::Result<()> {
+        // Put the socket in non-blocking mode.
         unsafe {
             let mut nonblocking = true as libc::c_ulong;
             let res = winsock2::ioctlsocket(
@@ -50,9 +55,11 @@ impl Reactor {
                 return Err(io::Error::last_os_error());
             }
         }
+
+        // Register the socket in wepoll.
         let mut ev = we::epoll_event {
             events: 0,
-            data: we::epoll_data { u64: key as u64 },
+            data: we::epoll_data { u64: 0u64 },
         };
         wepoll!(epoll_ctl(
             self.handle,
@@ -60,16 +67,12 @@ impl Reactor {
             sock as we::SOCKET,
             &mut ev,
         ))?;
+
         Ok(())
     }
 
-    pub fn interest(
-        &self,
-        sock: RawSocket,
-        key: usize,
-        read: bool,
-        write: bool,
-    ) -> io::Result<()> {
+    /// Adds interest in a read/write event on a socket and associates a key with it.
+    pub fn interest(&self, sock: RawSocket, key: usize, read: bool, write: bool) -> io::Result<()> {
         let mut flags = we::EPOLLONESHOT;
         if read {
             flags |= READ_FLAGS;
@@ -77,6 +80,7 @@ impl Reactor {
         if write {
             flags |= WRITE_FLAGS;
         }
+
         let mut ev = we::epoll_event {
             events: flags as u32,
             data: we::epoll_data { u64: key as u64 },
@@ -87,9 +91,11 @@ impl Reactor {
             sock as we::SOCKET,
             &mut ev,
         ))?;
+
         Ok(())
     }
 
+    /// Removes a socket.
     pub fn remove(&self, sock: RawSocket) -> io::Result<()> {
         wepoll!(epoll_ctl(
             self.handle,
@@ -100,13 +106,21 @@ impl Reactor {
         Ok(())
     }
 
+    /// Waits for I/O events with an optional timeout.
+    ///
+    /// Returns the number of processed I/O events.
+    ///
+    /// If a notification occurs, this method will return but the notification event will not be
+    /// included in the `events` list nor contribute to the returned count.
     pub fn wait(&self, events: &mut Events, timeout: Option<Duration>) -> io::Result<usize> {
+        // Convert the timeout to milliseconds.
         let timeout_ms = match timeout {
             None => -1,
             Some(t) => {
                 if t == Duration::from_millis(0) {
                     0
                 } else {
+                    // Non-zero duration must be at least 1ms.
                     t.max(Duration::from_millis(1))
                         .as_millis()
                         .try_into()
@@ -114,18 +128,22 @@ impl Reactor {
                 }
             }
         };
+
+        // Wait for I/O events.
         events.len = wepoll!(epoll_wait(
             self.handle,
             events.list.as_mut_ptr(),
             events.list.len() as libc::c_int,
             timeout_ms,
         ))? as usize;
+
         Ok(events.len)
     }
 
+    /// Sends a notification to wake up the current or next `wait()` call.
     pub fn notify(&self) -> io::Result<()> {
         unsafe {
-            // This errors if a notification has already been posted, but that's okay.
+            // This calls errors if a notification has already been posted, but that's okay.
             winapi::um::ioapiset::PostQueuedCompletionStatus(
                 self.handle as winapi::um::winnt::HANDLE,
                 0,
@@ -145,17 +163,13 @@ impl Drop for Reactor {
     }
 }
 
-struct As(RawSocket);
-
-impl AsRawSocket for As {
-    fn as_raw_socket(&self) -> RawSocket {
-        self.0
-    }
-}
-
+/// Wepoll flags for all possible readability events.
 const READ_FLAGS: u32 = we::EPOLLIN | we::EPOLLRDHUP | we::EPOLLHUP | we::EPOLLERR | we::EPOLLPRI;
+
+/// Wepoll flags for all possible writability events.
 const WRITE_FLAGS: u32 = we::EPOLLOUT | we::EPOLLHUP | we::EPOLLERR;
 
+/// A list of reported I/O events.
 pub struct Events {
     list: Box<[we::epoll_event]>,
     len: usize,
@@ -164,6 +178,7 @@ pub struct Events {
 unsafe impl Send for Events {}
 
 impl Events {
+    /// Creates an empty list.
     pub fn new() -> Events {
         let ev = we::epoll_event {
             events: 0,
@@ -175,11 +190,12 @@ impl Events {
         }
     }
 
+    /// Iterates over I/O events.
     pub fn iter(&self) -> impl Iterator<Item = Event> + '_ {
         self.list[..self.len].iter().map(|ev| Event {
+            key: unsafe { ev.data.u64 } as usize,
             readable: (ev.events & READ_FLAGS) != 0,
             writable: (ev.events & WRITE_FLAGS) != 0,
-            key: unsafe { ev.data.u64 } as usize,
         })
     }
 }

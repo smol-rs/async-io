@@ -1,3 +1,10 @@
+//! Bindings to epoll/kqueue/wepoll.
+//!
+//! On all platforms the I/O reactor is used in oneshot mode.
+//!
+//! Since this module is just syscalls to the operating system, it is the only place where unsafe
+//! code is required.
+
 use std::io;
 use std::mem::ManuallyDrop;
 use std::net::{Shutdown, TcpStream};
@@ -8,6 +15,7 @@ use std::os::windows::io::{FromRawSocket, RawSocket};
 
 use cfg_if::cfg_if;
 
+/// Calls a libc function and results in `io::Result`.
 #[cfg(unix)]
 macro_rules! syscall {
     ($fn:ident $args:tt) => {{
@@ -42,10 +50,14 @@ cfg_if! {
     }
 }
 
+/// An event reported by epoll/kqueue/wepoll.
 pub struct Event {
-    pub readable: bool,
-    pub writable: bool,
+    /// Key passed when registering interest in the I/O handle.
     pub key: usize,
+    /// Is the I/O handle readable?
+    pub readable: bool,
+    /// Is the I/O handle writable?
+    pub writable: bool,
 }
 
 /// Shuts down the write side of a socket.

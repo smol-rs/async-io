@@ -26,7 +26,9 @@ use std::{
     path::Path,
 };
 
-use futures_lite::*;
+use futures_lite::io::{AsyncRead, AsyncWrite};
+use futures_lite::stream::{self, Stream};
+use futures_lite::{future, pin, ready};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::parking::{Reactor, Source};
