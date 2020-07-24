@@ -30,3 +30,4 @@ winapi = { version = "0.3.9", features = ["ioapiset"] }
 async-channel = "1.1.1"
 async-dup = "1.2.1"
 tempfile = "3.1.0"
+waker-fn = "1.0.0"

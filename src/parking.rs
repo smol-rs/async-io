@@ -1,8 +1,50 @@
 //! Thread parking and unparking.
 //!
-//! This module exposes the same API as [`parking`](https://docs.rs/parking). The only difference
-//! is that [`Parker`] in this module will wait on epoll/kqueue/wepoll and wake tasks blocked on
-//! I/O or timers.
+//! This module exposes the exact same API as [`parking`][docs-parking]. The only
+//! difference is that [`Parker`] in this module will wait on epoll/kqueue/wepoll and wake tasks
+//! blocked on I/O or timers.
+//!
+//! Executors may use this mechanism to go to sleep when idle and wake up when more work is
+//! scheduled. By waking tasks blocked on I/O and then running those tasks on the same thread,
+//! no thread context switch is necessary when going between task execution and I/O.
+//!
+//! You can treat this module as merely an optimization over the [`parking`][docs-parking] crate.
+//!
+//! [docs-parking]: https://docs.rs/parking
+//!
+//! # Examples
+//!
+//! A simple `block_on()` that runs a single future and waits on I/O:
+//!
+//! ```
+//! use std::future::Future;
+//! use std::task::{Context, Poll};
+//!
+//! use futures_lite::{future, pin};
+//! use waker_fn::waker_fn;
+//!
+//! // Blocks on a future to complete, waiting on I/O when idle.
+//! fn block_on<T>(future: impl Future<Output = T>) -> T {
+//!     // Create a waker that notifies through I/O when done.
+//!     let (p, u) = parking::pair();
+//!     let waker = waker_fn(move || u.unpark());
+//!     let cx = &mut Context::from_waker(&waker);
+//!
+//!     pin!(future);
+//!     loop {
+//!         match future.as_mut().poll(cx) {
+//!             Poll::Ready(t) => return t, // Done!
+//!             Poll::Pending => p.park(),  // Wait for an I/O event.
+//!         }
+//!     }
+//! }
+//!
+//! block_on(async {
+//!     println!("Hello world!");
+//!     future::yield_now().await;
+//!     println!("Hello again!");
+//! });
+//! ```
 
 use std::collections::BTreeMap;
 use std::fmt;
@@ -41,7 +83,7 @@ pub fn pair() -> (Parker, Unparker) {
     (p, u)
 }
 
-/// Parks a thread.
+/// Waits for a notification.
 pub struct Parker {
     unparker: Unparker,
 }
@@ -50,7 +92,16 @@ impl UnwindSafe for Parker {}
 impl RefUnwindSafe for Parker {}
 
 impl Parker {
-    /// Creates a new [`Parker`].
+    /// Creates a new parker.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use parking::Parker;
+    ///
+    /// let p = Parker::new();
+    /// ```
+    ///
     pub fn new() -> Parker {
         // Ensure `Reactor` is initialized now to prevent it from being initialized in `Drop`.
         Reactor::get();
@@ -68,29 +119,109 @@ impl Parker {
         parker
     }
 
-    /// Blocks the current thread until the token is made available.
+    /// Blocks until notified and then goes back into unnotified state.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use parking::Parker;
+    ///
+    /// let p = Parker::new();
+    /// let u = p.unparker();
+    ///
+    /// // Notify the parker.
+    /// u.unpark();
+    ///
+    /// // Wakes up immediately because the parker is notified.
+    /// p.park();
+    /// ```
     pub fn park(&self) {
         self.unparker.inner.park(None);
     }
 
-    /// Blocks the current thread until the token is made available or the timeout is reached.
+    /// Blocks until notified and then goes back into unnotified state, or times out after
+    /// `duration`.
+    ///
+    /// Returns `true` if notified before the timeout.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::Duration;
+    /// use parking::Parker;
+    ///
+    /// let p = Parker::new();
+    ///
+    /// // Wait for a notification, or time out after 500 ms.
+    /// p.park_timeout(Duration::from_millis(500));
+    /// ```
     pub fn park_timeout(&self, timeout: Duration) -> bool {
         self.unparker.inner.park(Some(timeout))
     }
 
-    /// Blocks the current thread until the token is made available or the deadline is reached.
+    /// Blocks until notified and then goes back into unnotified state, or times out at `instant`.
+    ///
+    /// Returns `true` if notified before the deadline.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::time::{Duration, Instant};
+    /// use parking::Parker;
+    ///
+    /// let p = Parker::new();
+    ///
+    /// // Wait for a notification, or time out after 500 ms.
+    /// p.park_deadline(Instant::now() + Duration::from_millis(500));
+    /// ```
     pub fn park_deadline(&self, deadline: Instant) -> bool {
         self.unparker
             .inner
             .park(Some(deadline.saturating_duration_since(Instant::now())))
     }
 
-    /// Atomically makes the token available if it is not already.
+    /// Notifies the parker.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread;
+    /// use std::time::Duration;
+    /// use parking::Parker;
+    ///
+    /// let p = Parker::new();
+    /// let u = p.unparker();
+    ///
+    /// thread::spawn(move || {
+    ///     thread::sleep(Duration::from_millis(500));
+    ///     u.unpark();
+    /// });
+    ///
+    /// // Wakes up when `u.unpark()` notifies and then goes back into unnotified state.
+    /// p.park();
+    /// ```
     pub fn unpark(&self) {
         self.unparker.unpark()
     }
 
     /// Returns a handle for unparking.
+    ///
+    /// The returned [`Unparker`] can be cloned and shared among threads.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use parking::Parker;
+    ///
+    /// let p = Parker::new();
+    /// let u = p.unparker();
+    ///
+    /// // Notify the parker.
+    /// u.unpark();
+    ///
+    /// // Wakes up immediately because the parker is notified.
+    /// p.park();
+    /// ```
     pub fn unparker(&self) -> Unparker {
         self.unparker.clone()
     }
@@ -115,7 +246,7 @@ impl fmt::Debug for Parker {
     }
 }
 
-/// Unparks a thread.
+/// Notifies a parker.
 pub struct Unparker {
     inner: Arc<Inner>,
 }
@@ -124,7 +255,26 @@ impl UnwindSafe for Unparker {}
 impl RefUnwindSafe for Unparker {}
 
 impl Unparker {
-    /// Atomically makes the token available if it is not already.
+    /// Notifies the associated parker.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use std::thread;
+    /// use std::time::Duration;
+    /// use parking::Parker;
+    ///
+    /// let p = Parker::new();
+    /// let u = p.unparker();
+    ///
+    /// thread::spawn(move || {
+    ///     thread::sleep(Duration::from_millis(500));
+    ///     u.unpark();
+    /// });
+    ///
+    /// // Wakes up when `u.unpark()` notifies and then goes back into unnotified state.
+    /// p.park();
+    /// ```
     pub fn unpark(&self) {
         self.inner.unpark()
     }
