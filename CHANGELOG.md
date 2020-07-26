@@ -1,3 +1,9 @@
+# Version 0.1.6
+
+- Add `Timer::reset()`.
+- Add third party licenses.
+- Code cleanup.
+
 # Version 0.1.5
 
 - Make `Parker` and `Unparker` unwind-safe.
