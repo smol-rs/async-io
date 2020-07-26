@@ -68,6 +68,14 @@ pub struct Timer {
 }
 
 impl Timer {
+    /// Creates a timer that expires at the specified instant in time.
+    pub fn at(when: Instant) -> Timer {
+        Timer {
+            id_and_waker: None,
+            when,
+        }
+    }
+
     /// Creates a timer that expires after the given duration of time.
     ///
     /// # Examples
@@ -81,11 +89,8 @@ impl Timer {
     /// # });
     /// ```
     pub fn new(dur: Duration) -> Timer {
-        Timer {
-            id_and_waker: None,
-            when: Instant::now() + dur,
-        }
-    }
+		Timer::at(Instant::now() + dur)
+	}
 
     /// Resets the timer to expire after the new duration of time.
     ///
