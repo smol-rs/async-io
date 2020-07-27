@@ -20,6 +20,7 @@
 //! use std::future::Future;
 //! use std::task::{Context, Poll};
 //!
+//! use async_io::parking;
 //! use futures_lite::{future, pin};
 //! use waker_fn::waker_fn;
 //!
@@ -75,6 +76,8 @@ static PARKER_COUNT: AtomicUsize = AtomicUsize::new(0);
 /// # Examples
 ///
 /// ```
+/// use async_io::parking;
+///
 /// let (p, u) = parking::pair();
 /// ```
 pub fn pair() -> (Parker, Unparker) {
@@ -97,7 +100,7 @@ impl Parker {
     /// # Examples
     ///
     /// ```
-    /// use parking::Parker;
+    /// use async_io::parking::Parker;
     ///
     /// let p = Parker::new();
     /// ```
@@ -124,7 +127,7 @@ impl Parker {
     /// # Examples
     ///
     /// ```
-    /// use parking::Parker;
+    /// use async_io::parking::Parker;
     ///
     /// let p = Parker::new();
     /// let u = p.unparker();
@@ -147,8 +150,8 @@ impl Parker {
     /// # Examples
     ///
     /// ```
+    /// use async_io::parking::Parker;
     /// use std::time::Duration;
-    /// use parking::Parker;
     ///
     /// let p = Parker::new();
     ///
@@ -166,8 +169,8 @@ impl Parker {
     /// # Examples
     ///
     /// ```
+    /// use async_io::parking::Parker;
     /// use std::time::{Duration, Instant};
-    /// use parking::Parker;
     ///
     /// let p = Parker::new();
     ///
@@ -185,9 +188,9 @@ impl Parker {
     /// # Examples
     ///
     /// ```
+    /// use async_io::parking::Parker;
     /// use std::thread;
     /// use std::time::Duration;
-    /// use parking::Parker;
     ///
     /// let p = Parker::new();
     /// let u = p.unparker();
@@ -211,7 +214,7 @@ impl Parker {
     /// # Examples
     ///
     /// ```
-    /// use parking::Parker;
+    /// use async_io::parking::Parker;
     ///
     /// let p = Parker::new();
     /// let u = p.unparker();
@@ -260,9 +263,9 @@ impl Unparker {
     /// # Examples
     ///
     /// ```
+    /// use async_io::parking::Parker;
     /// use std::thread;
     /// use std::time::Duration;
-    /// use parking::Parker;
     ///
     /// let p = Parker::new();
     /// let u = p.unparker();

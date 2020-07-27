@@ -2,7 +2,7 @@
 
 use std::convert::TryInto;
 use std::io;
-use std::os::windows::io::{AsRawSocket, RawSocket};
+use std::os::windows::io::RawSocket;
 use std::ptr;
 use std::time::Duration;
 

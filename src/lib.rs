@@ -6,6 +6,28 @@
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 //! [wepoll]: https://github.com/piscisaureus/wepoll
+//!
+//! # Examples
+//!
+//! Connect to `example.com:80`, or time out after 10 seconds.
+//!
+//! ```
+//! use async_io::{Async, Timer};
+//! use futures_lite::{future::FutureExt, io};
+//!
+//! use std::net::{TcpStream, ToSocketAddrs};
+//! use std::time::Duration;
+//!
+//! # futures_lite::future::block_on(async {
+//! let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
+//!
+//! let stream = Async::<TcpStream>::connect(addr).or(async {
+//!     Timer::new(Duration::from_secs(10)).await;
+//!     Err(io::ErrorKind::TimedOut.into())
+//! })
+//! .await?;
+//! # std::io::Result::Ok(()) });
+//! ```
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
@@ -28,7 +50,7 @@ use std::{
 
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
-use futures_lite::{future, pin, ready};
+use futures_lite::{future, pin};
 use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::parking::{Reactor, Source};
@@ -171,18 +193,17 @@ impl Future for Timer {
 /// operations in [`Async::read_with()`], [`Async::read_with_mut()`], [`Async::write_with()`], and
 /// [`Async::write_with_mut()`].
 ///
-/// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
+/// **NOTE:** Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
 /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-/// supported. Wrap them in
-/// [`blocking::Unblock`](https://docs.rs/blocking/*/blocking/struct.Unblock.html) instead.
+/// supported.
+///
+/// [epoll]: https://en.wikipedia.org/wiki/Epoll
+/// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+/// [wepoll]: https://github.com/piscisaureus/wepoll
 ///
 /// # Examples
 ///
-/// To make an async I/O handle cloneable, wrap it in
-/// [`async_dup::Arc`](https://docs.rs/async-dup/1/async_dup/struct.Arc.html):
-///
 /// ```no_run
-/// use async_dup::Arc;
 /// use async_io::Async;
 /// use futures_lite::io;
 /// use std::net::TcpStream;
@@ -191,46 +212,10 @@ impl Future for Timer {
 /// // Connect to a local server.
 /// let stream = Async::<TcpStream>::connect(([127, 0, 0, 1], 8000)).await?;
 ///
-/// // Create two handles to the stream.
-/// let reader = Arc::new(stream);
-/// let mut writer = reader.clone();
-///
 /// // Echo all messages from the read side of the stream into the write side.
-/// io::copy(reader, &mut writer).await?;
+/// io::copy(&stream, &stream).await?;
 /// # std::io::Result::Ok(()) });
 /// ```
-///
-/// If a type does but its reference doesn't implement [`AsyncRead`] and [`AsyncWrite`], wrap it in
-/// [`async_dup::Mutex`](https://docs.rs/async-dup/1/async_dup/struct.Mutex.html):
-///
-/// ```no_run
-/// use async_dup::{Arc, Mutex};
-/// use async_io::Async;
-/// use futures_lite::{io, AsyncRead, AsyncWrite};
-/// use std::net::TcpStream;
-///
-/// # futures_lite::future::block_on(async {
-/// // Reads data from a stream and echoes it back.
-/// async fn echo(stream: impl AsyncRead + AsyncWrite + Unpin) -> io::Result<u64> {
-///     let stream = Mutex::new(stream);
-///
-///     // Create two handles to the stream.
-///     let reader = Arc::new(stream);
-///     let mut writer = reader.clone();
-///
-///     // Echo all messages from the read side of the stream into the write side.
-///     io::copy(reader, &mut writer).await
-/// }
-///
-/// // Connect to a local server and echo its messages back.
-/// let stream = Async::<TcpStream>::connect(([127, 0, 0, 1], 8000)).await?;
-/// echo(stream).await?;
-/// # std::io::Result::Ok(()) });
-/// ```
-///
-/// [epoll]: https://en.wikipedia.org/wiki/Epoll
-/// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
-/// [wepoll]: https://github.com/piscisaureus/wepoll
 #[derive(Debug)]
 pub struct Async<T> {
     /// A source registered in the reactor.
@@ -244,20 +229,11 @@ pub struct Async<T> {
 impl<T: AsRawFd> Async<T> {
     /// Creates an async I/O handle.
     ///
-    /// This function will put the handle in non-blocking mode and register it in [epoll] on
-    /// Linux/Android, [kqueue] on macOS/iOS/BSD, or [wepoll] on Windows.
+    /// This function will put the handle in non-blocking mode and register it in
+    /// [epoll]/[kqueue]/[wepoll].
+    ///
     /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
     /// `AsRawSocket`.
-    ///
-    /// If the handle implements [`Read`] and [`Write`], then `Async<T>` automatically
-    /// implements [`AsyncRead`] and [`AsyncWrite`].
-    /// Other I/O operations can be *asyncified* by methods [`Async::read_with()`],
-    /// [`Async::read_with_mut()`], [`Async::write_with()`], and [`Async::write_with_mut()`].
-    ///
-    /// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
-    /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-    /// supported. Wrap them in
-    /// [`blocking::Unblock`](https://docs.rs/blocking/*/blocking/struct.Unblock.html) instead.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -293,20 +269,11 @@ impl<T: AsRawFd> AsRawFd for Async<T> {
 impl<T: AsRawSocket> Async<T> {
     /// Creates an async I/O handle.
     ///
-    /// This function will put the handle in non-blocking mode and register it in [epoll] on
-    /// Linux/Android, [kqueue] on macOS/iOS/BSD, or [wepoll] on Windows.
+    /// This function will put the handle in non-blocking mode and register it in
+    /// [epoll]/[kqueue]/[wepoll].
+    ///
     /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
     /// `AsRawSocket`.
-    ///
-    /// If the handle implements [`Read`] and [`Write`], then `Async<T>` automatically
-    /// implements [`AsyncRead`] and [`AsyncWrite`].
-    /// Other I/O operations can be *asyncified* by methods [`Async::read_with()`],
-    /// [`Async::read_with_mut()`], [`Async::write_with()`], and [`Async::write_with_mut()`].
-    ///
-    /// **NOTE**: Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
-    /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-    /// supported. Wrap them in
-    /// [`blocking::Unblock`](https://docs.rs/blocking/*/blocking/struct.Unblock.html) instead.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -459,15 +426,13 @@ impl<T> Async<T> {
     /// ```
     pub async fn read_with<R>(&self, op: impl FnMut(&T) -> io::Result<R>) -> io::Result<R> {
         let mut op = op;
-        future::poll_fn(|cx| {
+        loop {
             match op(self.get_ref()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
+                res => return res,
             }
-            ready!(poll_once(cx, self.readable()))?;
-            Poll::Pending
-        })
-        .await
+            optimistic(self.readable()).await?;
+        }
     }
 
     /// Performs a read operation asynchronously.
@@ -497,15 +462,13 @@ impl<T> Async<T> {
         op: impl FnMut(&mut T) -> io::Result<R>,
     ) -> io::Result<R> {
         let mut op = op;
-        future::poll_fn(|cx| {
+        loop {
             match op(self.get_mut()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
+                res => return res,
             }
-            ready!(poll_once(cx, self.readable()))?;
-            Poll::Pending
-        })
-        .await
+            optimistic(self.readable()).await?;
+        }
     }
 
     /// Performs a write operation asynchronously.
@@ -533,15 +496,13 @@ impl<T> Async<T> {
     /// ```
     pub async fn write_with<R>(&self, op: impl FnMut(&T) -> io::Result<R>) -> io::Result<R> {
         let mut op = op;
-        future::poll_fn(|cx| {
+        loop {
             match op(self.get_ref()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
+                res => return res,
             }
-            ready!(poll_once(cx, self.writable()))?;
-            Poll::Pending
-        })
-        .await
+            optimistic(self.writable()).await?;
+        }
     }
 
     /// Performs a write operation asynchronously.
@@ -572,15 +533,13 @@ impl<T> Async<T> {
         op: impl FnMut(&mut T) -> io::Result<R>,
     ) -> io::Result<R> {
         let mut op = op;
-        future::poll_fn(|cx| {
+        loop {
             match op(self.get_mut()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
+                res => return res,
             }
-            ready!(poll_once(cx, self.writable()))?;
-            Poll::Pending
-        })
-        .await
+            optimistic(self.writable()).await?;
+        }
     }
 }
 
@@ -602,7 +561,7 @@ impl<T: Read> AsyncRead for Async<T> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        poll_once(cx, self.read_with_mut(|io| io.read(buf)))
+        poll_future(cx, self.read_with_mut(|io| io.read(buf)))
     }
 
     fn poll_read_vectored(
@@ -610,7 +569,7 @@ impl<T: Read> AsyncRead for Async<T> {
         cx: &mut Context<'_>,
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
-        poll_once(cx, self.read_with_mut(|io| io.read_vectored(bufs)))
+        poll_future(cx, self.read_with_mut(|io| io.read_vectored(bufs)))
     }
 }
 
@@ -623,7 +582,7 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        poll_once(cx, self.read_with(|io| (&*io).read(buf)))
+        poll_future(cx, self.read_with(|io| (&*io).read(buf)))
     }
 
     fn poll_read_vectored(
@@ -631,7 +590,7 @@ where
         cx: &mut Context<'_>,
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
-        poll_once(cx, self.read_with(|io| (&*io).read_vectored(bufs)))
+        poll_future(cx, self.read_with(|io| (&*io).read_vectored(bufs)))
     }
 }
 
@@ -641,7 +600,7 @@ impl<T: Write> AsyncWrite for Async<T> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        poll_once(cx, self.write_with_mut(|io| io.write(buf)))
+        poll_future(cx, self.write_with_mut(|io| io.write(buf)))
     }
 
     fn poll_write_vectored(
@@ -649,11 +608,11 @@ impl<T: Write> AsyncWrite for Async<T> {
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        poll_once(cx, self.write_with_mut(|io| io.write_vectored(bufs)))
+        poll_future(cx, self.write_with_mut(|io| io.write_vectored(bufs)))
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        poll_once(cx, self.write_with_mut(|io| io.flush()))
+        poll_future(cx, self.write_with_mut(|io| io.flush()))
     }
 
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -670,7 +629,7 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        poll_once(cx, self.write_with(|io| (&*io).write(buf)))
+        poll_future(cx, self.write_with(|io| (&*io).write(buf)))
     }
 
     fn poll_write_vectored(
@@ -678,11 +637,11 @@ where
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        poll_once(cx, self.write_with(|io| (&*io).write_vectored(bufs)))
+        poll_future(cx, self.write_with(|io| (&*io).write_vectored(bufs)))
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        poll_once(cx, self.write_with(|io| (&*io).flush()))
+        poll_future(cx, self.write_with(|io| (&*io).flush()))
     }
 
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -1292,8 +1251,24 @@ impl Async<UnixDatagram> {
     }
 }
 
-/// Pins a future and then polls it.
-fn poll_once<T>(cx: &mut Context<'_>, fut: impl Future<Output = T>) -> Poll<T> {
+/// Polls a future once.
+fn poll_future<T>(cx: &mut Context<'_>, fut: impl Future<Output = T>) -> Poll<T> {
     pin!(fut);
     fut.poll(cx)
+}
+
+/// Polls a future once, waits for a wakeup, and then optimistically assumes the future is ready.
+async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()> {
+    let mut polled = false;
+    pin!(fut);
+
+    future::poll_fn(|cx| {
+        if !polled {
+            polled = true;
+            fut.as_mut().poll(cx)
+        } else {
+            Poll::Ready(Ok(()))
+        }
+    })
+    .await
 }

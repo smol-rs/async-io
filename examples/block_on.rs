@@ -1,6 +1,7 @@
 use std::future::Future;
 use std::task::{Context, Poll};
 
+use async_io::parking;
 use futures_lite::pin;
 use waker_fn::waker_fn;
 
