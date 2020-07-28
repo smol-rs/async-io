@@ -1,3 +1,8 @@
+# Version 0.1.7
+
+- Tweak the async-io thread to use less CPU.
+- More examples.
+
 # Version 0.1.6
 
 - Add `Timer::reset()`.
