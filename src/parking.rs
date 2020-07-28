@@ -501,7 +501,7 @@ impl Reactor {
                         let tick = reactor.ticker.load(Ordering::SeqCst);
 
                         if last_tick == tick {
-                            let reactor_lock = if sleeps >= 60 {
+                            let reactor_lock = if sleeps >= 20 {
                                 Some(reactor.lock())
                             } else {
                                 reactor.try_lock()
