@@ -6,7 +6,7 @@ use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawSocket;
 use std::panic;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Poll, Waker};
 use std::thread;
@@ -166,6 +166,7 @@ impl Reactor {
                 readers: Vec::new(),
                 writers: Vec::new(),
             }),
+            wakers_registered: AtomicU8::new(0),
         });
         sources.insert(source.clone());
 
@@ -338,12 +339,18 @@ impl ReactorLock<'_> {
                         if ev.readable {
                             w.tick_readable = tick;
                             wakers.append(&mut w.readers);
+                            source
+                                .wakers_registered
+                                .fetch_and(!Source::READERS_REGISTERED, Ordering::SeqCst);
                         }
 
                         // Wake writers if a writability event was emitted.
                         if ev.writable {
                             w.tick_writable = tick;
                             wakers.append(&mut w.writers);
+                            source
+                                .wakers_registered
+                                .fetch_and(!Source::WRITERS_REGISTERED, Ordering::SeqCst);
                         }
 
                         // Re-register if there are still writers or
@@ -408,6 +415,9 @@ pub(crate) struct Source {
 
     /// Tasks interested in events on this source.
     wakers: Mutex<Wakers>,
+
+    /// Whether there are wakers interrested in events on this source.
+    wakers_registered: AtomicU8,
 }
 
 /// Tasks interested in events on a source.
@@ -427,6 +437,9 @@ struct Wakers {
 }
 
 impl Source {
+    const READERS_REGISTERED: u8 = 1 << 0;
+    const WRITERS_REGISTERED: u8 = 1 << 1;
+
     /// Waits until the I/O source is readable.
     pub(crate) async fn readable(&self) -> io::Result<()> {
         let mut ticks = None;
@@ -453,6 +466,8 @@ impl Source {
                         writable: !w.writers.is_empty(),
                     },
                 )?;
+                self.wakers_registered
+                    .fetch_or(Self::READERS_REGISTERED, Ordering::SeqCst);
             }
 
             // Register the current task's waker if not present already.
@@ -471,6 +486,11 @@ impl Source {
             Poll::Pending
         })
         .await
+    }
+
+    pub(crate) fn readers_registered(&self) -> bool {
+        self.wakers_registered.load(Ordering::SeqCst) & Self::READERS_REGISTERED
+            == Self::READERS_REGISTERED
     }
 
     /// Waits until the I/O source is writable.
@@ -499,6 +519,8 @@ impl Source {
                         writable: true,
                     },
                 )?;
+                self.wakers_registered
+                    .fetch_or(Self::WRITERS_REGISTERED, Ordering::SeqCst);
             }
 
             // Register the current task's waker if not present already.
@@ -517,5 +539,10 @@ impl Source {
             Poll::Pending
         })
         .await
+    }
+
+    pub(crate) fn writers_registered(&self) -> bool {
+        self.wakers_registered.load(Ordering::SeqCst) & Self::WRITERS_REGISTERED
+            == Self::WRITERS_REGISTERED
     }
 }
