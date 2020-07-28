@@ -451,6 +451,7 @@ impl Inner {
 ///
 /// There is only one global instance of this type, accessible by [`Reactor::get()`].
 pub(crate) struct Reactor {
+    /// Unparks the async-io thread.
     thread_unparker: parking::Unparker,
 
     /// Raw bindings to epoll/kqueue/wepoll.
@@ -485,6 +486,10 @@ impl Reactor {
         static REACTOR: Lazy<Reactor> = Lazy::new(|| {
             let (parker, unparker) = parking::pair();
 
+            // Spawn a helper thread driving the reactor.
+            //
+            // Note that this thread is not exactly necessary, it's only here to help push things
+            // forward if there are no `Parker`s around.
             thread::Builder::new()
                 .name("async-io".to_string())
                 .spawn(move || {
@@ -516,13 +521,13 @@ impl Reactor {
                         if PARKER_COUNT.load(Ordering::SeqCst) == 0 {
                             sleeps = 0;
                         } else {
-                            let delay_us = if sleeps < 50 {
-                                20
-                            } else {
-                                20 << (sleeps - 50).min(9)
-                            };
+                            // Exponential backoff from 50us to 10ms.
+                            let delay_us = [50, 75, 100, 250, 500, 750, 1000, 2500, 5000]
+                                .get(sleeps as usize)
+                                .unwrap_or(&10_000);
 
-                            if parker.park_timeout(Duration::from_micros(delay_us)) {
+                            if parker.park_timeout(Duration::from_micros(*delay_us)) {
+                                // If woken up before timeout, reset the counter.
                                 sleeps = 0;
                             }
                         }

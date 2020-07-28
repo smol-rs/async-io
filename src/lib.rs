@@ -189,10 +189,6 @@ impl Future for Timer {
 /// This type converts a blocking I/O type into an async type, provided it is supported by
 /// [epoll]/[kqueue]/[wepoll].
 ///
-/// You can use predefined async methods on the standard networking types, or wrap blocking I/O
-/// operations in [`Async::read_with()`], [`Async::read_with_mut()`], [`Async::write_with()`], and
-/// [`Async::write_with_mut()`].
-///
 /// **NOTE:** Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
 /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
 /// supported.
@@ -202,6 +198,8 @@ impl Future for Timer {
 /// [wepoll]: https://github.com/piscisaureus/wepoll
 ///
 /// # Examples
+///
+/// Connect to a server and echo incoming messages back to the server:
 ///
 /// ```no_run
 /// use async_io::Async;
@@ -214,6 +212,23 @@ impl Future for Timer {
 ///
 /// // Echo all messages from the read side of the stream into the write side.
 /// io::copy(&stream, &stream).await?;
+/// # std::io::Result::Ok(()) });
+/// ```
+///
+/// You can use predefined async methods or wrap blocking I/O operations in
+/// [`Async::read_with()`], [`Async::read_with_mut()`], [`Async::write_with()`], and
+/// [`Async::write_with_mut()`]:
+///
+/// ```no_run
+/// use async_io::Async;
+/// use std::net::TcpListener;
+///
+/// # futures_lite::future::block_on(async {
+/// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+///
+/// // These two lines are equivalent:
+/// let (stream, addr) = listener.accept().await?;
+/// let (stream, addr) = listener.read_with(|inner| inner.accept()).await?;
 /// # std::io::Result::Ok(()) });
 /// ```
 #[derive(Debug)]

@@ -1,3 +1,11 @@
+//! A simple `block_on()` that uses `async_io::parking` to wait for the next wakeup.
+//!
+//! Run with:
+//!
+//! ```
+//! cargo run --example block_on
+//! ```
+
 use std::future::Future;
 use std::task::{Context, Poll};
 
