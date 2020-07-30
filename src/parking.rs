@@ -489,7 +489,8 @@ impl Reactor {
             // Spawn a helper thread driving the reactor.
             //
             // Note that this thread is not exactly necessary, it's only here to help push things
-            // forward if there are no `Parker`s around.
+            // forward if there are no `Parker`s around or if `Parker`s are just idling and never
+            // parking.
             thread::Builder::new()
                 .name("async-io".to_string())
                 .spawn(move || {
@@ -501,7 +502,9 @@ impl Reactor {
                         let tick = reactor.ticker.load(Ordering::SeqCst);
 
                         if last_tick == tick {
-                            let reactor_lock = if sleeps >= 20 {
+                            let reactor_lock = if sleeps >= 10 {
+                                // If no new ticks have occurred for a while, stop sleeping in this
+                                // loop and just block on the reactor lock instead.
                                 Some(reactor.lock())
                             } else {
                                 reactor.try_lock()
@@ -510,25 +513,25 @@ impl Reactor {
                             if let Some(reactor_lock) = reactor_lock {
                                 let _ = reactor_lock.react(None);
                                 last_tick = reactor.ticker.load(Ordering::SeqCst);
+                                sleeps = 0;
                             }
-
-                            sleeps = 0;
                         } else {
                             last_tick = tick;
-                            sleeps += 1;
                         }
 
-                        if PARKER_COUNT.load(Ordering::SeqCst) == 0 {
-                            sleeps = 0;
-                        } else {
+                        if PARKER_COUNT.load(Ordering::SeqCst) > 0 {
                             // Exponential backoff from 50us to 10ms.
                             let delay_us = [50, 75, 100, 250, 500, 750, 1000, 2500, 5000]
                                 .get(sleeps as usize)
                                 .unwrap_or(&10_000);
 
                             if parker.park_timeout(Duration::from_micros(*delay_us)) {
-                                // If woken up before timeout, reset the counter.
+                                // If woken up before timeout, reset the last tick and sleep
+                                // counter.
+                                last_tick = reactor.ticker.load(Ordering::SeqCst);
                                 sleeps = 0;
+                            } else {
+                                sleeps += 1;
                             }
                         }
                     }
