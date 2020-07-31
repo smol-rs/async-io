@@ -1,3 +1,7 @@
+# Version 0.1.8
+
+- Tweak the async-io to poll I/O less aggressively.
+
 # Version 0.1.7
 
 - Tweak the async-io thread to use less CPU.
