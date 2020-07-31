@@ -1,7 +1,30 @@
 //! Async I/O and timers.
 //!
-//! To wait for the next I/O event, the reactor calls [epoll] on Linux/Android, [kqueue] on
-//! macOS/iOS/BSD, and [wepoll] on Windows.
+//! This crate provides two tools:
+//!
+//! * [`Async`], an adapter for standard networking types (and [many other] types) to use in
+//!   async programs.
+//! * [`Timer`], a future that expires after a duration of time.
+//!
+//! For concrete async networking types built on top of this crate, see [`async-net`].
+//!
+//! [many other]: https://github.com/stjepang/async-io/tree/master/examples
+//! [`async-net`]: https://docs.rs/async-net
+//!
+//! # Implementation
+//!
+//! The first time [`Async`] or [`Timer`] is used, a thread named "async-io" will be spawned.
+//! The purpose of this thread is to wait for I/O events reported by the operating system, and then
+//! wake appropriate futures blocked on I/O or timers when they can be resumed.
+//!
+//! To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Android/illumos,
+//! [kqueue] on macOS/iOS/BSD, and [wepoll] on Windows.
+//!
+//! However, note that you can also process I/O events and wake futures manually if using the
+//! [`parking`] module. The "async-io" thread is therefore just a fallback mechanism processing I/O
+//! events in case you forget to or choose not to do that manually.
+//!
+//! See the [`parking`] module for more details.
 //!
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue

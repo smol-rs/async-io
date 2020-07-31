@@ -1,20 +1,20 @@
 //! Thread parking and unparking.
 //!
-//! This module exposes the exact same API as [`parking`][docs-parking]. The only
-//! difference is that [`Parker`] in this module will wait on epoll/kqueue/wepoll and wake tasks
-//! blocked on I/O or timers.
+//! This module exposes the exact same API as the [`parking`][docs-parking] crate. The only
+//! difference is that [`Parker`] in this module will wait on epoll/kqueue/wepoll and wake futures
+//! blocked on I/O or timers instead of *just* sleeping.
 //!
 //! Executors may use this mechanism to go to sleep when idle and wake up when more work is
-//! scheduled. By waking tasks blocked on I/O and then running those tasks on the same thread,
-//! no thread context switch is necessary when going between task execution and I/O.
-//!
-//! You can treat this module as merely an optimization over the [`parking`][docs-parking] crate.
+//! scheduled. The benefit is in that when going to sleep using [`Parker`], futures blocked on I/O
+//! or timers will often be woken and polled by the same executor thread. This is sometimes a
+//! significant optimization because no context switch is needed between waiting on I/O and polling
+//! futures.
 //!
 //! [docs-parking]: https://docs.rs/parking
 //!
 //! # Examples
 //!
-//! A simple `block_on()` that runs a single future and waits on I/O:
+//! A simple `block_on()` that runs a single future and waits on I/O when the future is idle:
 //!
 //! ```
 //! use std::future::Future;
@@ -24,9 +24,8 @@
 //! use futures_lite::{future, pin};
 //! use waker_fn::waker_fn;
 //!
-//! // Blocks on a future to complete, waiting on I/O when idle.
+//! // Blocks on a future to complete, processing I/O events when idle.
 //! fn block_on<T>(future: impl Future<Output = T>) -> T {
-//!     // Create a waker that notifies through I/O when done.
 //!     let (p, u) = parking::pair();
 //!     let waker = waker_fn(move || u.unpark());
 //!     let cx = &mut Context::from_waker(&waker);
@@ -34,8 +33,11 @@
 //!     pin!(future);
 //!     loop {
 //!         match future.as_mut().poll(cx) {
-//!             Poll::Ready(t) => return t, // Done!
-//!             Poll::Pending => p.park(),  // Wait for an I/O event.
+//!             Poll::Ready(t) => return t,
+//!             Poll::Pending => {
+//!                 // Wait until unparked, processing I/O events in the meantime.
+//!                 p.park();
+//!             }
 //!         }
 //!     }
 //! }
@@ -337,8 +339,10 @@ impl Inner {
         // Otherwise, we need to coordinate going to sleep.
         let deadline = timeout.map(|t| Instant::now() + t);
         loop {
+            // Attempt grabbing a lock on the reactor.
             let reactor_lock = Reactor::get().try_lock();
 
+            // Depending on whether a lock was grabbed, the next state is `PARKED` or `POLLING`.
             let state = match reactor_lock {
                 None => PARKED,
                 Some(_) => POLLING,
@@ -352,11 +356,11 @@ impl Inner {
                 Ok(_) => {}
                 // Consume this notification to avoid spurious wakeups in the next park.
                 Err(NOTIFIED) => {
-                    // We must read `state` here, even though we know it will be `NOTIFIED`. This is
-                    // because `unpark` may have been called again since we read `NOTIFIED` in the
-                    // `compare_exchange` above. We must perform an acquire operation that synchronizes
-                    // with that `unpark` to observe any writes it made before the call to `unpark`. To
-                    // do that we must read from the write it made to `state`.
+                    // We must read `state` here, even though we know it will be `NOTIFIED`. This
+                    // is because `unpark` may have been called again since we read `NOTIFIED` in
+                    // the `compare_exchange` above. We must perform an acquire operation that
+                    // synchronizes with that `unpark` to observe any writes it made before the
+                    // call to `unpark`. To do that we must read from the write it made to `state`.
                     let old = self.state.swap(EMPTY, Ordering::SeqCst);
                     assert_eq!(old, NOTIFIED, "park state changed unexpectedly");
                     return true;
@@ -385,9 +389,9 @@ impl Inner {
                     }
                 }
                 Some(deadline) => {
-                    // Wait with a timeout, and if we spuriously wake up or otherwise wake up from a
-                    // notification we just want to unconditionally set `state` back to `EMPTY`, either
-                    // consuming a notification or un-flagging ourselves as parked.
+                    // Wait with a timeout, and if we spuriously wake up or otherwise wake up from
+                    // a notification we just want to unconditionally set `state` back to `EMPTY`,
+                    // either consuming a notification or un-flagging ourselves as parked.
                     let timeout = deadline.saturating_duration_since(Instant::now());
 
                     m = match reactor_lock {
@@ -495,16 +499,19 @@ impl Reactor {
                 .name("async-io".to_string())
                 .spawn(move || {
                     let reactor = Reactor::get();
-                    let mut sleeps = 0u64;
+
+                    // The last observed reactor tick.
                     let mut last_tick = 0;
+                    // Number of sleeps since this thread has called `react()`.
+                    let mut sleeps = 0u64;
 
                     loop {
                         let tick = reactor.ticker.load(Ordering::SeqCst);
 
                         if last_tick == tick {
                             let reactor_lock = if sleeps >= 10 {
-                                // If no new ticks have occurred for a while, stop sleeping in this
-                                // loop and just block on the reactor lock instead.
+                                // If no new ticks have occurred for a while, stop sleeping and
+                                // spinning in this loop and just block on the reactor lock.
                                 Some(reactor.lock())
                             } else {
                                 reactor.try_lock()
@@ -526,8 +533,7 @@ impl Reactor {
                                 .unwrap_or(&10_000);
 
                             if parker.park_timeout(Duration::from_micros(*delay_us)) {
-                                // If woken up before timeout, reset the last tick and sleep
-                                // counter.
+                                // If woken before timeout, reset the last tick and sleep counter.
                                 last_tick = reactor.ticker.load(Ordering::SeqCst);
                                 sleeps = 0;
                             } else {
