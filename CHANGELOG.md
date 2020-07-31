@@ -1,3 +1,8 @@
+# Version 0.1.9
+
+- Update dependencies.
+- More documentation.
+
 # Version 0.1.8
 
 - Tweak the async-io to poll I/O less aggressively.
