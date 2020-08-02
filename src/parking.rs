@@ -450,9 +450,6 @@ impl Inner {
 
 /// The reactor.
 ///
-/// Every async I/O handle and every timer is registered here. Invocations of
-/// [`run()`][`crate::run()`] poll the reactor to check for new events every now and then.
-///
 /// There is only one global instance of this type, accessible by [`Reactor::get()`].
 pub(crate) struct Reactor {
     /// Unparks the async-io thread.
