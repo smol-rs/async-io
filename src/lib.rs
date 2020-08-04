@@ -76,9 +76,11 @@ use futures_lite::stream::{self, Stream};
 use futures_lite::{future, pin};
 use socket2::{Domain, Protocol, Socket, Type};
 
-use crate::parking::{Reactor, Source};
+use crate::reactor::{Reactor, Source};
 
 pub mod parking;
+
+mod reactor;
 mod sys;
 
 /// A timer that expires after a duration of time.
