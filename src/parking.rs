@@ -175,7 +175,7 @@ impl Parker {
     /// p.park();
     /// ```
     pub fn unpark(&self) {
-        if self.inner.unpark() && self.io.load(Ordering::Acquire) {
+        if self.inner.unpark() && self.io.load(Ordering::SeqCst) {
             Reactor::get().notify();
         }
     }
@@ -315,7 +315,7 @@ impl Unparker {
     /// p.park();
     /// ```
     pub fn unpark(&self) {
-        if self.inner.unpark() && self.io.load(Ordering::Acquire) {
+        if self.inner.unpark() && self.io.load(Ordering::SeqCst) {
             Reactor::get().notify();
         }
     }
