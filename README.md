@@ -44,11 +44,12 @@ println!("{}", contents);
 Read a file and pipe its contents to stdout:
 
 ```rust
-use blocking::Unblock;
+use blocking::{unblock, Unblock};
 use futures_lite::*;
 use std::fs::File;
 
-let input = Unblock::new(File::open("file.txt")?);
+let input = unblock!(File::open("file.txt"))?;
+let input = Unblock::new(input);
 let mut output = Unblock::new(std::io::stdout());
 
 io::copy(input, &mut output).await?;

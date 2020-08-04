@@ -34,12 +34,13 @@
 //! Read a file and pipe its contents to stdout:
 //!
 //! ```no_run
-//! use blocking::Unblock;
+//! use blocking::{unblock, Unblock};
 //! use futures_lite::*;
 //! use std::fs::File;
 //!
 //! # future::block_on(async {
-//! let input = Unblock::new(File::open("file.txt")?);
+//! let input = unblock!(File::open("file.txt"))?;
+//! let input = Unblock::new(input);
 //! let mut output = Unblock::new(std::io::stdout());
 //!
 //! io::copy(input, &mut output).await?;
@@ -360,11 +361,13 @@ impl<T> Unblock<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use blocking::Unblock;
+    /// use blocking::{unblock, Unblock};
     /// use std::fs::File;
     ///
     /// # futures_lite::future::block_on(async {
-    /// let mut file = Unblock::new(File::create("file.txt")?);
+    /// let file = unblock!(File::create("file.txt"))?;
+    /// let mut file = Unblock::new(file);
+    ///
     /// let metadata = file.get_mut().await.metadata()?;
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -390,11 +393,13 @@ impl<T> Unblock<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use blocking::Unblock;
+    /// use blocking::{unblock, Unblock};
     /// use std::fs::File;
     ///
     /// # futures_lite::future::block_on(async {
-    /// let mut file = Unblock::new(File::create("file.txt")?);
+    /// let file = unblock!(File::create("file.txt"))?;
+    /// let mut file = Unblock::new(file);
+    ///
     /// let metadata = file.with_mut(|f| f.metadata()).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
@@ -440,13 +445,13 @@ impl<T> Unblock<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use blocking::Unblock;
+    /// use blocking::{unblock, Unblock};
     /// use futures_lite::*;
     /// use std::fs::File;
     ///
     /// # futures_lite::future::block_on(async {
-    /// let mut file = Unblock::new(File::create("file.txt")?);
-    /// file.write_all(b"Hello world!").await?;
+    /// let file = unblock!(File::create("file.txt"))?;
+    /// let file = Unblock::new(file);
     ///
     /// let file = file.into_inner().await;
     /// # std::io::Result::Ok(()) });
