@@ -73,7 +73,10 @@ pub fn pair() -> (Parker, Unparker) {
 /// Waits for a notification.
 #[derive(Debug)]
 pub struct Parker {
+    /// The inner parker implementation.
     inner: parking::Parker,
+
+    /// Set to `true` when the parker is polling I/O.
     io: Arc<AtomicBool>,
 }
 
@@ -289,7 +292,10 @@ impl Default for Parker {
 /// Notifies a parker.
 #[derive(Clone, Debug)]
 pub struct Unparker {
+    /// The inner unparker implementation.
     inner: parking::Unparker,
+
+    /// Set to `true` when the parker is polling I/O.
     io: Arc<AtomicBool>,
 }
 

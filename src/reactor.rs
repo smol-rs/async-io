@@ -15,9 +15,8 @@ use std::time::{Duration, Instant};
 use concurrent_queue::ConcurrentQueue;
 use futures_lite::*;
 use once_cell::sync::Lazy;
+use polling::{Event, Poller};
 use vec_arena::Arena;
-
-use crate::sys;
 
 /// The reactor.
 ///
@@ -29,8 +28,8 @@ pub(crate) struct Reactor {
     /// Unparks the async-io thread.
     thread_unparker: parking::Unparker,
 
-    /// Raw bindings to epoll/kqueue/wepoll.
-    sys: sys::Reactor,
+    /// Bindings to epoll/kqueue/wepoll.
+    poller: Poller,
 
     /// Ticker bumped before polling.
     ticker: AtomicUsize,
@@ -39,7 +38,7 @@ pub(crate) struct Reactor {
     sources: Mutex<Arena<Arc<Source>>>,
 
     /// Temporary storage for I/O events when polling the reactor.
-    events: Mutex<sys::Events>,
+    events: Mutex<Vec<Event>>,
 
     /// An ordered map of registered timers.
     ///
@@ -74,10 +73,10 @@ impl Reactor {
             Reactor {
                 parker_count: AtomicUsize::new(0),
                 thread_unparker: unparker,
-                sys: sys::Reactor::new().expect("cannot initialize I/O event notification"),
+                poller: Poller::new().expect("cannot initialize I/O event notification"),
                 ticker: AtomicUsize::new(0),
                 sources: Mutex::new(Arena::new()),
-                events: Mutex::new(sys::Events::new()),
+                events: Mutex::new(Vec::new()),
                 timers: Mutex::new(BTreeMap::new()),
                 timer_ops: ConcurrentQueue::bounded(1000),
             }
@@ -143,7 +142,7 @@ impl Reactor {
 
     /// Notifies the thread blocked on the reactor.
     pub(crate) fn notify(&self) {
-        self.sys.notify().expect("failed to notify reactor");
+        self.poller.notify().expect("failed to notify reactor");
     }
 
     /// Registers an I/O source in the reactor.
@@ -153,7 +152,7 @@ impl Reactor {
         #[cfg(windows)] raw: RawSocket,
     ) -> io::Result<Arc<Source>> {
         // Register the file descriptor.
-        self.sys.insert(raw)?;
+        self.poller.insert(raw)?;
 
         // Create an I/O source for this file descriptor.
         let mut sources = self.sources.lock().unwrap();
@@ -177,7 +176,7 @@ impl Reactor {
     pub(crate) fn remove_io(&self, source: &Source) -> io::Result<()> {
         let mut sources = self.sources.lock().unwrap();
         sources.remove(source.key);
-        self.sys.remove(source.raw)
+        self.poller.remove(source.raw)
     }
 
     /// Registers a timer in the reactor.
@@ -287,7 +286,7 @@ impl Reactor {
 /// A lock on the reactor.
 pub(crate) struct ReactorLock<'a> {
     reactor: &'a Reactor,
-    events: MutexGuard<'a, sys::Events>,
+    events: MutexGuard<'a, Vec<Event>>,
 }
 
 impl ReactorLock<'_> {
@@ -313,7 +312,7 @@ impl ReactorLock<'_> {
             .wrapping_add(1);
 
         // Block on I/O events.
-        let res = match self.reactor.sys.wait(&mut self.events, timeout) {
+        let res = match self.reactor.poller.wait(&mut self.events, timeout) {
             // No I/O events occurred.
             Ok(0) => {
                 if timeout != Some(Duration::from_secs(0)) {
@@ -350,11 +349,13 @@ impl ReactorLock<'_> {
                         // previously interested in both readability and
                         // writability, but only one of them was emitted.
                         if !(w.writers.is_empty() && w.readers.is_empty()) {
-                            self.reactor.sys.interest(
+                            self.reactor.poller.interest(
                                 source.raw,
-                                source.key,
-                                !w.readers.is_empty(),
-                                !w.writers.is_empty(),
+                                Event {
+                                    key: source.key,
+                                    readable: !w.readers.is_empty(),
+                                    writable: !w.writers.is_empty(),
+                                },
                             )?;
                         }
                     }
@@ -442,9 +443,14 @@ impl Source {
 
             // If there are no other readers, re-register in the reactor.
             if w.readers.is_empty() {
-                Reactor::get()
-                    .sys
-                    .interest(self.raw, self.key, true, !w.writers.is_empty())?;
+                Reactor::get().poller.interest(
+                    self.raw,
+                    Event {
+                        key: self.key,
+                        readable: true,
+                        writable: !w.writers.is_empty(),
+                    },
+                )?;
             }
 
             // Register the current task's waker if not present already.
@@ -483,9 +489,14 @@ impl Source {
 
             // If there are no other writers, re-register in the reactor.
             if w.writers.is_empty() {
-                Reactor::get()
-                    .sys
-                    .interest(self.raw, self.key, !w.readers.is_empty(), true)?;
+                Reactor::get().poller.interest(
+                    self.raw,
+                    Event {
+                        key: self.key,
+                        readable: !w.readers.is_empty(),
+                        writable: true,
+                    },
+                )?;
             }
 
             // Register the current task's waker if not present already.

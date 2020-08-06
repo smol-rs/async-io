@@ -54,19 +54,19 @@
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
-use std::fmt::Debug;
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::mem::ManuallyDrop;
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 #[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, RawSocket};
+use std::os::windows::io::{AsRawSocket, FromRawSocket, RawSocket};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 #[cfg(unix)]
 use std::{
-    os::unix::io::{AsRawFd, RawFd},
+    os::unix::io::{AsRawFd, FromRawFd, RawFd},
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
@@ -79,9 +79,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 use crate::reactor::{Reactor, Source};
 
 pub mod parking;
-
 mod reactor;
-mod sys;
 
 /// A timer that expires after a duration of time.
 ///
@@ -656,7 +654,7 @@ impl<T: Write> AsyncWrite for Async<T> {
     }
 
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(sys::shutdown_write(self.source.raw))
+        Poll::Ready(shutdown_write(self.source.raw))
     }
 }
 
@@ -685,7 +683,7 @@ where
     }
 
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(sys::shutdown_write(self.source.raw))
+        Poll::Ready(shutdown_write(self.source.raw))
     }
 }
 
@@ -1311,4 +1309,26 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
         }
     })
     .await
+}
+
+/// Shuts down the write side of a socket.
+///
+/// If this source is not a socket, the `shutdown()` syscall error is ignored.
+pub fn shutdown_write(#[cfg(unix)] raw: RawFd, #[cfg(windows)] raw: RawSocket) -> io::Result<()> {
+    // This may not be a TCP stream, but that's okay. All we do is attempt a `shutdown()` on the
+    // raw descriptor and ignore errors.
+    let stream = unsafe {
+        ManuallyDrop::new(
+            #[cfg(unix)]
+            TcpStream::from_raw_fd(raw),
+            #[cfg(windows)]
+            TcpStream::from_raw_socket(raw),
+        )
+    };
+
+    // If the socket is a TCP stream, the only actual error can be ENOTCONN.
+    match stream.shutdown(Shutdown::Write) {
+        Err(err) if err.kind() == io::ErrorKind::NotConnected => Err(err),
+        _ => Ok(()),
+    }
 }
