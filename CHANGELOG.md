@@ -1,3 +1,8 @@
+# Version 0.1.10
+
+- Simpler implementation of the `parking` module.
+- Extracted raw bindings to epoll/kqueue/wepoll into the `polling` crate.
+
 # Version 0.1.9
 
 - Update dependencies.
