@@ -311,6 +311,8 @@ impl ReactorLock<'_> {
             .fetch_add(1, Ordering::SeqCst)
             .wrapping_add(1);
 
+        self.events.clear();
+
         // Block on I/O events.
         let res = match self.reactor.poller.wait(&mut self.events, timeout) {
             // No I/O events occurred.
