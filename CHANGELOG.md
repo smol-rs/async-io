@@ -1,3 +1,7 @@
+# Version 0.1.11
+
+- Bug fix: clear events list before polling.
+
 # Version 0.1.10
 
 - Simpler implementation of the `parking` module.
