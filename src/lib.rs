@@ -18,7 +18,7 @@
 //! wake appropriate futures blocked on I/O or timers when they can be resumed.
 //!
 //! To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Android/illumos,
-//! [kqueue] on macOS/iOS/BSD, and [wepoll] on Windows.
+//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows.
 //!
 //! However, note that you can also process I/O events and wake futures manually if using the
 //! [`parking`] module. The "async-io" thread is therefore just a fallback mechanism processing I/O
@@ -28,6 +28,7 @@
 //!
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+//! [event ports]: https://illumos.org/man/port_create
 //! [wepoll]: https://github.com/piscisaureus/wepoll
 //!
 //! # Examples
@@ -210,7 +211,7 @@ impl Future for Timer {
 /// Async I/O.
 ///
 /// This type converts a blocking I/O type into an async type, provided it is supported by
-/// [epoll]/[kqueue]/[wepoll].
+/// [epoll]/[kqueue]/[event ports]/[wepoll].
 ///
 /// **NOTE:** Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
 /// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
@@ -218,6 +219,7 @@ impl Future for Timer {
 ///
 /// [epoll]: https://en.wikipedia.org/wiki/Epoll
 /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+/// [event ports]: https://illumos.org/man/port_create
 /// [wepoll]: https://github.com/piscisaureus/wepoll
 ///
 /// # Examples
@@ -268,13 +270,14 @@ impl<T: AsRawFd> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This function will put the handle in non-blocking mode and register it in
-    /// [epoll]/[kqueue]/[wepoll].
+    /// [epoll]/[kqueue]/[event ports]/[wepoll].
     ///
     /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
     /// `AsRawSocket`.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+    /// [event ports]: https://illumos.org/man/port_create
     /// [wepoll]: https://github.com/piscisaureus/wepoll
     ///
     /// # Examples
@@ -308,13 +311,14 @@ impl<T: AsRawSocket> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This function will put the handle in non-blocking mode and register it in
-    /// [epoll]/[kqueue]/[wepoll].
+    /// [epoll]/[kqueue]/[event ports]/[wepoll].
     ///
     /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
     /// `AsRawSocket`.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+    /// [event ports]: https://illumos.org/man/port_create
     /// [wepoll]: https://github.com/piscisaureus/wepoll
     ///
     /// # Examples
@@ -1314,7 +1318,7 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
 /// Shuts down the write side of a socket.
 ///
 /// If this source is not a socket, the `shutdown()` syscall error is ignored.
-pub fn shutdown_write(#[cfg(unix)] raw: RawFd, #[cfg(windows)] raw: RawSocket) -> io::Result<()> {
+fn shutdown_write(#[cfg(unix)] raw: RawFd, #[cfg(windows)] raw: RawSocket) -> io::Result<()> {
     // This may not be a TCP stream, but that's okay. All we do is attempt a `shutdown()` on the
     // raw descriptor and ignore errors.
     let stream = unsafe {

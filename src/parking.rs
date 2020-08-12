@@ -1,8 +1,8 @@
 //! Thread parking and unparking.
 //!
 //! This module exposes the exact same API as the [`parking`][docs-parking] crate. The only
-//! difference is that [`Parker`] in this module will wait on epoll/kqueue/wepoll and wake futures
-//! blocked on I/O or timers instead of *just* sleeping.
+//! difference is that [`Parker`] in this module will wait on epoll/kqueue/event ports/wepoll and
+//! wake futures blocked on I/O or timers instead of *just* sleeping.
 //!
 //! Executors may use this mechanism to go to sleep when idle and wake up when more work is
 //! scheduled. The benefit is in that when going to sleep using [`Parker`], futures blocked on I/O

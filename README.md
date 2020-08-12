@@ -29,7 +29,7 @@ The purpose of this thread is to wait for I/O events reported by the operating s
 wake appropriate futures blocked on I/O or timers when they can be resumed.
 
 To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Android/illumos,
-[kqueue] on macOS/iOS/BSD, and [wepoll] on Windows.
+[kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows.
 
 However, note that you can also process I/O events and wake futures manually if using the
 `parking` module. The "async-io" thread is therefore just a fallback mechanism processing I/O
@@ -39,6 +39,7 @@ See the `parking` module for more details.
 
 [epoll]: https://en.wikipedia.org/wiki/Epoll
 [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+[event ports]: https://illumos.org/man/port_create
 [wepoll]: https://github.com/piscisaureus/wepoll
 
 ## Examples

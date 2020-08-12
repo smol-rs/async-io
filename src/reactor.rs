@@ -28,7 +28,7 @@ pub(crate) struct Reactor {
     /// Unparks the async-io thread.
     thread_unparker: parking::Unparker,
 
-    /// Bindings to epoll/kqueue/wepoll.
+    /// Bindings to epoll/kqueue/event ports/wepoll.
     poller: Poller,
 
     /// Ticker bumped before polling.
