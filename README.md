@@ -15,7 +15,7 @@ This crate provides two tools:
 
 * `Async`, an adapter for standard networking types (and [many other] types) to use in
   async programs.
-* `Timer`, a future that expires after a duration of time.
+* `Timer`, a future that expires at a point in time.
 
 For concrete async networking types built on top of this crate, see [`async-net`].
 
@@ -29,7 +29,8 @@ The purpose of this thread is to wait for I/O events reported by the operating s
 wake appropriate futures blocked on I/O or timers when they can be resumed.
 
 To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Android/illumos,
-[kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows.
+[kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows. That
+functionality is provided by the [`polling`] crate.
 
 However, note that you can also process I/O events and wake futures manually if using the
 `parking` module. The "async-io" thread is therefore just a fallback mechanism processing I/O
@@ -41,6 +42,7 @@ See the `parking` module for more details.
 [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 [event ports]: https://illumos.org/man/port_create
 [wepoll]: https://github.com/piscisaureus/wepoll
+[`polling`]: https://docs.rs/polling
 
 ## Examples
 
@@ -56,7 +58,7 @@ use std::time::Duration;
 let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
 
 let stream = Async::<TcpStream>::connect(addr).or(async {
-    Timer::new(Duration::from_secs(10)).await;
+    Timer::after(Duration::from_secs(10)).await;
     Err(io::ErrorKind::TimedOut.into())
 })
 .await?;

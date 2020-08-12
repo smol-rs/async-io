@@ -25,7 +25,7 @@ fn spawn<T: Send + 'static>(
 fn smoke() {
     future::block_on(async {
         let start = Instant::now();
-        Timer::new(Duration::from_secs(1)).await;
+        Timer::after(Duration::from_secs(1)).await;
         assert!(start.elapsed() >= Duration::from_secs(1));
     });
 }
@@ -37,7 +37,7 @@ fn poll_across_tasks() {
         let (sender, receiver) = async_channel::bounded(1);
 
         let task1 = spawn(async move {
-            let mut timer = Timer::new(Duration::from_secs(1));
+            let mut timer = Timer::after(Duration::from_secs(1));
 
             async {
                 (&mut timer).await;
@@ -62,16 +62,16 @@ fn poll_across_tasks() {
 }
 
 #[test]
-fn reset() {
+fn set() {
     future::block_on(async {
         let start = Instant::now();
-        let timer = Arc::new(Mutex::new(Timer::new(Duration::from_secs(10))));
+        let timer = Arc::new(Mutex::new(Timer::after(Duration::from_secs(10))));
 
         thread::spawn({
             let timer = timer.clone();
             move || {
                 thread::sleep(Duration::from_secs(1));
-                timer.lock().unwrap().reset(Duration::from_secs(2));
+                timer.lock().unwrap().set_after(Duration::from_secs(2));
             }
         });
 

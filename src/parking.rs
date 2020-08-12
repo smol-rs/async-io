@@ -27,7 +27,9 @@
 //! // Blocks on a future to complete, processing I/O events when idle.
 //! fn block_on<T>(future: impl Future<Output = T>) -> T {
 //!     let (p, u) = parking::pair();
-//!     let waker = waker_fn(move || u.unpark());
+//!     let waker = waker_fn(move || {
+//!         u.unpark();
+//!     });
 //!     let cx = &mut Context::from_waker(&waker);
 //!
 //!     pin!(future);
@@ -159,6 +161,9 @@ impl Parker {
 
     /// Notifies the parker.
     ///
+    /// Returns `true` if this call is the first to notify the parker, or `false` if the parker was
+    /// already notified.
+    ///
     /// # Examples
     ///
     /// ```
@@ -177,10 +182,12 @@ impl Parker {
     /// // Wakes up when `u.unpark()` notifies and then goes back into unnotified state.
     /// p.park();
     /// ```
-    pub fn unpark(&self) {
-        if self.inner.unpark() && self.io.load(Ordering::SeqCst) {
+    pub fn unpark(&self) -> bool {
+        let unparked = self.inner.unpark();
+        if unparked && self.io.load(Ordering::SeqCst) {
             Reactor::get().notify();
         }
+        unparked
     }
 
     /// Returns a handle for unparking.
@@ -302,6 +309,9 @@ pub struct Unparker {
 impl Unparker {
     /// Notifies the associated parker.
     ///
+    /// Returns `true` if this call is the first to notify the parker, or `false` if the parker was
+    /// already notified.
+    ///
     /// # Examples
     ///
     /// ```
@@ -320,9 +330,11 @@ impl Unparker {
     /// // Wakes up when `u.unpark()` notifies and then goes back into unnotified state.
     /// p.park();
     /// ```
-    pub fn unpark(&self) {
-        if self.inner.unpark() && self.io.load(Ordering::SeqCst) {
+    pub fn unpark(&self) -> bool {
+        let unparked = self.inner.unpark();
+        if unparked && self.io.load(Ordering::SeqCst) {
             Reactor::get().notify();
         }
+        unparked
     }
 }

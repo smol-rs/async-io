@@ -15,7 +15,9 @@ use waker_fn::waker_fn;
 
 fn block_on<T>(future: impl Future<Output = T>) -> T {
     let (p, u) = parking::pair();
-    let waker = waker_fn(move || u.unpark());
+    let waker = waker_fn(move || {
+        u.unpark();
+    });
     let cx = &mut Context::from_waker(&waker);
 
     pin!(future);

@@ -4,7 +4,7 @@
 //!
 //! * [`Async`], an adapter for standard networking types (and [many other] types) to use in
 //!   async programs.
-//! * [`Timer`], a future that expires after a duration of time.
+//! * [`Timer`], a future that expires at a point in time.
 //!
 //! For concrete async networking types built on top of this crate, see [`async-net`].
 //!
@@ -18,7 +18,8 @@
 //! wake appropriate futures blocked on I/O or timers when they can be resumed.
 //!
 //! To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Android/illumos,
-//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows.
+//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows. That
+//! functionality is provided by the [`polling`] crate.
 //!
 //! However, note that you can also process I/O events and wake futures manually if using the
 //! [`parking`] module. The "async-io" thread is therefore just a fallback mechanism processing I/O
@@ -30,6 +31,7 @@
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 //! [event ports]: https://illumos.org/man/port_create
 //! [wepoll]: https://github.com/piscisaureus/wepoll
+//! [`polling`]: https://docs.rs/polling
 //!
 //! # Examples
 //!
@@ -46,7 +48,7 @@
 //! let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
 //!
 //! let stream = Async::<TcpStream>::connect(addr).or(async {
-//!     Timer::new(Duration::from_secs(10)).await;
+//!     Timer::after(Duration::from_secs(10)).await;
 //!     Err(io::ErrorKind::TimedOut.into())
 //! })
 //! .await?;
@@ -82,7 +84,7 @@ use crate::reactor::{Reactor, Source};
 pub mod parking;
 mod reactor;
 
-/// A timer that expires after a duration of time.
+/// A future that expires at a point in time.
 ///
 /// Timers are futures that output the [`Instant`] at which they fired.
 ///
@@ -95,7 +97,7 @@ mod reactor;
 /// use std::time::Duration;
 ///
 /// async fn sleep(dur: Duration) {
-///     Timer::new(dur).await;
+///     Timer::after(dur).await;
 /// }
 ///
 /// # futures_lite::future::block_on(async {
@@ -114,14 +116,6 @@ pub struct Timer {
 }
 
 impl Timer {
-    /// Creates a timer that expires at the specified instant in time.
-    pub fn at(when: Instant) -> Timer {
-        Timer {
-            id_and_waker: None,
-            when,
-        }
-    }
-
     /// Creates a timer that expires after the given duration of time.
     ///
     /// # Examples
@@ -131,18 +125,39 @@ impl Timer {
     /// use std::time::Duration;
     ///
     /// # futures_lite::future::block_on(async {
-    /// Timer::new(Duration::from_secs(1)).await;
+    /// Timer::after(Duration::from_secs(1)).await;
     /// # });
     /// ```
-    pub fn new(dur: Duration) -> Timer {
-		Timer::at(Instant::now() + dur)
-	}
+    pub fn after(duration: Duration) -> Timer {
+        Timer::at(Instant::now() + duration)
+    }
 
-    /// Resets the timer to expire after the new duration of time.
+    /// Creates a timer that expires at the given time instant.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use std::time::{Duration, Instant};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let now = Instant::now();
+    /// let when = now + Duration::from_secs(1);
+    /// Timer::at(when).await;
+    /// # });
+    /// ```
+    pub fn at(instant: Instant) -> Timer {
+        Timer {
+            id_and_waker: None,
+            when: instant,
+        }
+    }
+
+    /// Sets the timer to expire after the new duration of time.
     ///
     /// Note that resetting a timer is different from creating a new timer because
-    /// [`reset()`][`Timer::reset()`] does not remove the waker associated with the task that is
-    /// polling the timer.
+    /// [`set_after()`][`Timer::set_after()`] does not remove the waker associated with the task
+    /// that is polling the timer.
     ///
     /// # Examples
     ///
@@ -151,18 +166,42 @@ impl Timer {
     /// use std::time::Duration;
     ///
     /// # futures_lite::future::block_on(async {
-    /// let mut t = Timer::new(Duration::from_secs(1));
-    /// t.reset(Duration::from_millis(100));
+    /// let mut t = Timer::after(Duration::from_secs(1));
+    /// t.set_after(Duration::from_millis(100));
     /// # });
     /// ```
-    pub fn reset(&mut self, dur: Duration) {
+    pub fn set_after(&mut self, duration: Duration) {
+        self.set_at(Instant::now() + duration);
+    }
+
+    /// Sets the timer to expire at the new time instant.
+    ///
+    /// Note that resetting a timer is different from creating a new timer because
+    /// [`set_after()`][`Timer::set_after()`] does not remove the waker associated with the task
+    /// that is polling the timer.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use std::time::{Duration, Instant};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let mut t = Timer::after(Duration::from_secs(1));
+    ///
+    /// let now = Instant::now();
+    /// let when = now + Duration::from_secs(1);
+    /// t.set_at(when);
+    /// # });
+    /// ```
+    pub fn set_at(&mut self, instant: Instant) {
         if let Some((id, _)) = self.id_and_waker.as_ref() {
             // Deregister the timer from the reactor.
             Reactor::get().remove_timer(self.when, *id);
         }
 
         // Update the timeout.
-        self.when = Instant::now() + dur;
+        self.when = instant;
 
         if let Some((id, waker)) = self.id_and_waker.as_mut() {
             // Re-register the timer with the new timeout.
@@ -213,14 +252,14 @@ impl Future for Timer {
     }
 }
 
-/// Async I/O.
+/// Async adapter for I/O types.
 ///
-/// This type converts a blocking I/O type into an async type, provided it is supported by
-/// [epoll]/[kqueue]/[event ports]/[wepoll].
+/// This type puts an I/O handle into non-blocking mode, registers it in
+/// [epoll]/[kqueue]/[event ports]/[wepoll], and then provides an async interface for it.
 ///
 /// **NOTE:** Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
-/// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because they're not
-/// supported.
+/// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because all of the supported
+/// operating systems have issues with them when put in non-blocking mode.
 ///
 /// [epoll]: https://en.wikipedia.org/wiki/Epoll
 /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -245,7 +284,7 @@ impl Future for Timer {
 /// # std::io::Result::Ok(()) });
 /// ```
 ///
-/// You can use predefined async methods or wrap blocking I/O operations in
+/// You can use either predefined async methods or wrap blocking I/O operations in
 /// [`Async::read_with()`], [`Async::read_with_mut()`], [`Async::write_with()`], and
 /// [`Async::write_with_mut()`]:
 ///
@@ -387,7 +426,9 @@ impl<T> Async<T> {
         self.io.as_mut().unwrap()
     }
 
-    /// Unwraps the inner non-blocking I/O handle.
+    /// Unwraps the inner I/O handle.
+    ///
+    /// This method will **not** put the I/O handle back into blocking mode.
     ///
     /// # Examples
     ///
@@ -398,6 +439,9 @@ impl<T> Async<T> {
     /// # futures_lite::future::block_on(async {
     /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     /// let inner = listener.into_inner()?;
+    ///
+    /// // Put the listener back into blocking mode.
+    /// inner.set_nonblocking(false)?;
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn into_inner(mut self) -> io::Result<T> {

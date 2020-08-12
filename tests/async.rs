@@ -93,7 +93,7 @@ fn tcp_reader_hangup() -> io::Result<()> {
         let stream1 = task.await?.0;
 
         let task = spawn(async move {
-            Timer::new(Duration::from_secs(1)).await;
+            Timer::after(Duration::from_secs(1)).await;
             drop(stream1);
         });
 
@@ -115,7 +115,7 @@ fn tcp_writer_hangup() -> io::Result<()> {
         let stream1 = task.await?.0;
 
         let task = spawn(async move {
-            Timer::new(Duration::from_secs(1)).await;
+            Timer::after(Duration::from_secs(1)).await;
             drop(stream1);
         });
 
@@ -251,7 +251,7 @@ fn uds_reader_hangup() -> io::Result<()> {
         let (socket1, mut socket2) = Async::<UnixStream>::pair()?;
 
         let task = spawn(async move {
-            Timer::new(Duration::from_secs(1)).await;
+            Timer::after(Duration::from_secs(1)).await;
             drop(socket1);
         });
 
@@ -269,7 +269,7 @@ fn uds_writer_hangup() -> io::Result<()> {
         let (socket1, mut socket2) = Async::<UnixStream>::pair()?;
 
         let task = spawn(async move {
-            Timer::new(Duration::from_secs(1)).await;
+            Timer::after(Duration::from_secs(1)).await;
             drop(socket1);
         });
 
@@ -317,7 +317,7 @@ fn tcp_duplex() -> io::Result<()> {
         let w1 = spawn(do_write(stream1));
 
         // Sleep a bit, so that reading and writing are both blocked.
-        Timer::new(Duration::from_millis(5)).await;
+        Timer::after(Duration::from_millis(5)).await;
 
         // Start reading stream2, make stream1 writable.
         let r2 = spawn(do_read(stream2.clone()));
