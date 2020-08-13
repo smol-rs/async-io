@@ -95,8 +95,8 @@ use futures_lite::*;
 use once_cell::sync::Lazy;
 use waker_fn::waker_fn;
 
-/// Awaits the output of a spawned future.
-type Task<T> = Pin<Box<dyn Future<Output = T> + Send>>;
+/// Retrieves the output of a spawned future.
+type Task<T> = Receiver<T>;
 
 /// A spawned future and its current state.
 ///
@@ -194,8 +194,7 @@ impl Executor {
         });
         EXECUTOR.schedule(runnable);
 
-        // Return a handle that retrieves the output of the future.
-        Box::pin(async move { r.recv().await.expect("future has panicked") })
+        r
     }
 
     /// Runs the main loop on the current thread.
@@ -487,7 +486,7 @@ impl<T> Unblock<T> {
 
                 State::WithMut(task) => {
                     // Poll the task to wait for it to finish.
-                    let io = ready!(Pin::new(task).poll(cx));
+                    let io = ready!(Pin::new(task).poll_next(cx)).expect("future has panicked");
                     self.0 = State::Idle(Some(io));
                 }
 
@@ -497,7 +496,7 @@ impl<T> Unblock<T> {
                     any.take();
 
                     // Poll the task to retrieve the iterator.
-                    let iter = ready!(Pin::new(task).poll(cx));
+                    let iter = ready!(Pin::new(task).poll_next(cx)).expect("future has panicked");
                     self.0 = State::Idle(Some(iter));
                 }
 
@@ -507,7 +506,8 @@ impl<T> Unblock<T> {
                     reader.take();
 
                     // Poll the task to retrieve the I/O handle.
-                    let (res, io) = ready!(Pin::new(task).poll(cx));
+                    let (res, io) =
+                        ready!(Pin::new(task).poll_next(cx)).expect("future has panicked");
                     // Make sure to move into the idle state before reporting errors.
                     self.0 = State::Idle(Some(io));
                     res?;
@@ -519,7 +519,8 @@ impl<T> Unblock<T> {
                     writer.take();
 
                     // Poll the task to retrieve the I/O handle.
-                    let (res, io) = ready!(Pin::new(task).poll(cx));
+                    let (res, io) =
+                        ready!(Pin::new(task).poll_next(cx)).expect("future has panicked");
                     // Make sure to move into the idle state before reporting errors.
                     self.0 = State::Idle(Some(io));
                     res?;
@@ -527,7 +528,8 @@ impl<T> Unblock<T> {
 
                 State::Seeking(task) => {
                     // Poll the task to wait for it to finish.
-                    let (_, res, io) = ready!(Pin::new(task).poll(cx));
+                    let (_, res, io) =
+                        ready!(Pin::new(task).poll_next(cx)).expect("future has panicked");
                     // Make sure to move into the idle state before reporting errors.
                     self.0 = State::Idle(Some(io));
                     res?;
@@ -650,7 +652,8 @@ where
                     // the same thread that created it.
                     if opt.is_none() {
                         // Poll the task to retrieve the iterator.
-                        let iter = ready!(Pin::new(task).poll(cx));
+                        let iter =
+                            ready!(Pin::new(task).poll_next(cx)).expect("future has panicked");
                         self.0 = State::Idle(Some(iter));
                     }
 
@@ -716,7 +719,8 @@ impl<T: Read + Send + 'static> AsyncRead for Unblock<T> {
                     // the same thread that created it.
                     if n == 0 {
                         // Poll the task to retrieve the I/O handle.
-                        let (res, io) = ready!(Pin::new(task).poll(cx));
+                        let (res, io) =
+                            ready!(Pin::new(task).poll_next(cx)).expect("future has panicked");
                         // Make sure to move into the idle state before reporting errors.
                         self.0 = State::Idle(Some(io));
                         res?;
@@ -842,7 +846,8 @@ impl<T: Seek + Send + 'static> AsyncSeek for Unblock<T> {
 
                 State::Seeking(task) => {
                     // Poll the task to wait for it to finish.
-                    let (original_pos, res, io) = ready!(Pin::new(task).poll(cx));
+                    let (original_pos, res, io) =
+                        ready!(Pin::new(task).poll_next(cx)).expect("future has panicked");
                     // Make sure to move into the idle state before reporting errors.
                     self.0 = State::Idle(Some(io));
                     let current = res?;
