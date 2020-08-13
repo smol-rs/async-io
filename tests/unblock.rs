@@ -12,7 +12,7 @@ fn sleep() {
     let start = Instant::now();
 
     future::block_on(async {
-        let f = async { unblock!(thread::sleep(dur)) };
+        let f = unblock(move || thread::sleep(dur));
         pin!(f);
         assert!(future::poll_once(&mut f).await.is_none());
         f.await;

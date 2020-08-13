@@ -37,7 +37,7 @@ use blocking::unblock;
 use futures_lite::*;
 use std::fs;
 
-let contents = unblock!(fs::read_to_string("file.txt"))?;
+let contents = unblock(|| fs::read_to_string("file.txt")).await?;
 println!("{}", contents);
 ```
 
@@ -48,7 +48,7 @@ use blocking::{unblock, Unblock};
 use futures_lite::*;
 use std::fs::File;
 
-let input = unblock!(File::open("file.txt"))?;
+let input = unblock(|| File::open("file.txt")).await?;
 let input = Unblock::new(input);
 let mut output = Unblock::new(std::io::stdout());
 
@@ -74,7 +74,7 @@ Spawn a process:
 use blocking::unblock;
 use std::process::Command;
 
-let out = unblock!(Command::new("dir").output())?;
+let out = unblock(|| Command::new("dir").output()).await?;
 ```
 
 ## License

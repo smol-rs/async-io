@@ -26,7 +26,7 @@
 //! use std::fs;
 //!
 //! # future::block_on(async {
-//! let contents = unblock!(fs::read_to_string("file.txt"))?;
+//! let contents = unblock(|| fs::read_to_string("file.txt")).await?;
 //! println!("{}", contents);
 //! # io::Result::Ok(()) });
 //! ```
@@ -39,7 +39,7 @@
 //! use std::fs::File;
 //!
 //! # future::block_on(async {
-//! let input = unblock!(File::open("file.txt"))?;
+//! let input = unblock(|| File::open("file.txt")).await?;
 //! let input = Unblock::new(input);
 //! let mut output = Unblock::new(std::io::stdout());
 //!
@@ -69,7 +69,7 @@
 //! use std::process::Command;
 //!
 //! # futures_lite::future::block_on(async {
-//! let out = unblock!(Command::new("dir").output())?;
+//! let out = unblock(|| Command::new("dir").output()).await?;
 //! # std::io::Result::Ok(()) });
 //! ```
 
@@ -272,16 +272,49 @@ impl Executor {
 
 /// Runs blocking code on a thread pool.
 ///
+/// # Examples
+///
+/// Read the contents of a file:
+///
+/// ```no_run
+/// use blocking::unblock;
+/// use std::fs;
+///
+/// # futures_lite::future::block_on(async {
+/// let contents = unblock(|| fs::read_to_string("file.txt")).await?;
+/// # std::io::Result::Ok(()) });
+/// ```
+///
+/// Spawn a process:
+///
+/// ```no_run
+/// use blocking::unblock;
+/// use std::process::Command;
+///
+/// # futures_lite::future::block_on(async {
+/// let out = unblock(|| Command::new("dir").output()).await?;
+/// # std::io::Result::Ok(()) });
+/// ```
+pub async fn unblock<T, F>(f: F) -> T
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    Executor::spawn(async move { f() })
+        .recv()
+        .await
+        .expect("future has panicked")
+}
+
+/// Runs blocking code on a thread pool.
+///
 /// # Desugaring
 ///
 /// Note that `unblock!(expr)` is syntax sugar for:
 ///
 /// ```ignore
-/// Unblock::new(()).with_mut(move |_| expr).await
+/// unblock(move || expr).await
 /// ```
-///
-/// The `()` value is not used - this is just a cute trick to call [`Unblock::with_mut()`] with a
-/// closure on the thread pool.
 ///
 /// # Examples
 ///
@@ -309,7 +342,7 @@ impl Executor {
 #[macro_export]
 macro_rules! unblock {
     ($($code:tt)*) => {
-        $crate::Unblock::new(()).with_mut(move |_| { $($code)* }).await
+        $crate::unblock(move || { $($code)* }).await
     };
 }
 
@@ -364,7 +397,7 @@ impl<T> Unblock<T> {
     /// use std::fs::File;
     ///
     /// # futures_lite::future::block_on(async {
-    /// let file = unblock!(File::create("file.txt"))?;
+    /// let file = unblock(|| File::create("file.txt")).await?;
     /// let mut file = Unblock::new(file);
     ///
     /// let metadata = file.get_mut().await.metadata()?;
@@ -396,7 +429,7 @@ impl<T> Unblock<T> {
     /// use std::fs::File;
     ///
     /// # futures_lite::future::block_on(async {
-    /// let file = unblock!(File::create("file.txt"))?;
+    /// let file = unblock(|| File::create("file.txt")).await?;
     /// let mut file = Unblock::new(file);
     ///
     /// let metadata = file.with_mut(|f| f.metadata()).await?;
@@ -449,7 +482,7 @@ impl<T> Unblock<T> {
     /// use std::fs::File;
     ///
     /// # futures_lite::future::block_on(async {
-    /// let file = unblock!(File::create("file.txt"))?;
+    /// let file = unblock(|| File::create("file.txt")).await?;
     /// let file = Unblock::new(file);
     ///
     /// let file = file.into_inner().await;
