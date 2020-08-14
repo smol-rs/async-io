@@ -1,3 +1,9 @@
+# Version 0.5.1
+
+- Add `Unblock::with_capacity()`.
+- Add `unblock()` function.
+- An optimization in task spawning.
+
 # Version 0.5.0
 
 - Simplify the API to just `unblock!` and `Unblock`.
