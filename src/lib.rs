@@ -354,8 +354,22 @@ macro_rules! unblock {
 /// This type implements traits [`Stream`], [`AsyncRead`], [`AsyncWrite`], or [`AsyncSeek`] if the
 /// inner type implements [`Iterator`], [`Read`], [`Write`], or [`Seek`], respectively.
 ///
+/// # Notes
+///
 /// If writing data through the [`AsyncWrite`] trait, make sure to flush before dropping the
 /// [`Unblock`] handle or some buffered data might get lost.
+///
+/// [`Unblock`] communicates with I/O operations on the thread pool through a pipe. That means an
+/// async read/write operation simply receives/sends some bytes from/into the pipe. On the other
+/// side of the pipe, the inner I/O handle reads bytes in advance until the pipe is full, and it
+/// writes all bytes received through the pipe.
+///
+/// This kind of buffering has some interesting consequences. If [`Unblock`] wraps a
+/// [`File`][`std::fs::File`], note that a single read operation may move the file cursor farther
+/// than is the span of the operation! That's because reading happens in the background until the
+/// pipe gets full - blocking reads do not follow async reads byte-for-byte.
+///
+/// Use [`Unblock::with_capacity()`] to configure the capacity of the pipe.
 ///
 /// # Examples
 ///
