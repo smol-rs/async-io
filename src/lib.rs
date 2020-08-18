@@ -658,7 +658,7 @@ enum State<T> {
     /// The inner value is an [`Iterator`] currently iterating in a task.
     ///
     /// The `dyn Any` value here is a `mpsc::Receiver<<T as Iterator>::Item>`.
-    Streaming(Option<Box<dyn Any + Send>>, Task<Box<T>>),
+    Streaming(Option<Box<dyn Any + Send + Sync>>, Task<Box<T>>),
 
     /// The inner value is a [`Read`] currently reading in a task.
     Reading(Option<Reader>, Task<(io::Result<()>, Box<T>)>),
@@ -1051,6 +1051,9 @@ struct Pipe {
     /// The buffer capacity.
     cap: usize,
 }
+
+unsafe impl Sync for Pipe {}
+unsafe impl Send for Pipe {}
 
 impl Drop for Pipe {
     fn drop(&mut self) {
