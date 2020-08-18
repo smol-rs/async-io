@@ -1,3 +1,7 @@
+# Version 0.5.2
+
+- Implement `Sync` for `Unblock`.
+
 # Version 0.5.1
 
 - Add `Unblock::with_capacity()`.
