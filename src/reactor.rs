@@ -473,6 +473,7 @@ impl Source {
             // Register the current task's waker if not present already.
             if w.readers.iter().all(|w| !w.will_wake(cx.waker())) {
                 w.readers.push(cx.waker().clone());
+                limit_waker_list(&mut w.readers);
             }
 
             // Remember the current ticks.
@@ -526,6 +527,7 @@ impl Source {
             // Register the current task's waker if not present already.
             if w.writers.iter().all(|w| !w.will_wake(cx.waker())) {
                 w.writers.push(cx.waker().clone());
+                limit_waker_list(&mut w.writers);
             }
 
             // Remember the current ticks.
@@ -544,5 +546,27 @@ impl Source {
     pub(crate) fn writers_registered(&self) -> bool {
         self.wakers_registered.load(Ordering::SeqCst) & Self::WRITERS_REGISTERED
             == Self::WRITERS_REGISTERED
+    }
+}
+
+/// Wakes up all wakers in the list if it grew too big.
+///
+/// The waker list keeps growing in pathological cases where a single async I/O handle has lots of
+/// different reader or writer tasks. If the number of interested wakers crosses some threshold, we
+/// clear the list and wake all of them at once.
+///
+/// This strategy prevents memory leaks by bounding the number of stored wakers. However, since all
+/// wakers get woken, tasks might simply re-register their interest again, thus creating an infinite
+/// loop and burning CPU cycles forever.
+///
+/// However, we don't worry about such scenarios because it's very unlikely to have more than two
+/// actually concurrent tasks operating a single async I/O handle. If we happen to cross the
+/// aforementioned threshold, we have bigger problems to worry about.
+fn limit_waker_list(wakers: &mut Vec<Waker>) {
+    if wakers.len() > 50 {
+        for waker in wakers.drain(..) {
+            // Don't let a panicking waker blow everything up.
+            let _ = panic::catch_unwind(|| waker.wake());
+        }
     }
 }
