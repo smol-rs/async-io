@@ -556,11 +556,11 @@ impl Source {
 /// clear the list and wake all of them at once.
 ///
 /// This strategy prevents memory leaks by bounding the number of stored wakers. However, since all
-/// wakers get woken, tasks might simply re-register their interest again, thus creating an infinite
-/// loop and burning CPU cycles forever.
+/// wakers get woken, tasks might simply re-register their interest again, thus creating an
+/// infinite loop and burning CPU cycles forever.
 ///
 /// However, we don't worry about such scenarios because it's very unlikely to have more than two
-/// actually concurrent tasks operating a single async I/O handle. If we happen to cross the
+/// actually concurrent tasks operating on a single async I/O handle. If we happen to cross the
 /// aforementioned threshold, we have bigger problems to worry about.
 fn limit_waker_list(wakers: &mut Vec<Waker>) {
     if wakers.len() > 50 {
