@@ -1104,23 +1104,23 @@ impl Async<UnixStream> {
     /// ```
     pub async fn connect<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixStream>> {
         // Create a socket.
-        let socket = Socket::new(Domain::unix(), Type::stream(), None)?;
+        let socket = dbg!(Socket::new(Domain::unix(), Type::stream(), None))?;
 
         // Begin async connect and ignore the inevitable "in progress" error.
         socket.set_nonblocking(true)?;
         socket
             .connect(&socket2::SockAddr::unix(path)?)
             .or_else(|err| {
-                if err.raw_os_error() == Some(libc::EINPROGRESS) {
+                if dbg!(err.raw_os_error()) == Some(libc::EINPROGRESS) {
                     Ok(())
                 } else {
                     Err(err)
                 }
             })?;
-        let stream = Async::new(socket.into_unix_stream())?;
+        let stream = dbg!(Async::new(socket.into_unix_stream()))?;
 
         // The stream becomes writable when connected.
-        stream.writable().await?;
+        dbg!(stream.writable().await)?;
 
         Ok(stream)
     }
