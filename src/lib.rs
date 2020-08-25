@@ -1180,7 +1180,7 @@ impl Async<UnixStream> {
         socket
             .connect(&socket2::SockAddr::unix(path)?)
             .or_else(|err| {
-                if err.raw_os_error() == Some(libc::EINPROGRESS) {
+                if err.kind() == io::ErrorKind::WouldBlock {
                     Ok(())
                 } else {
                     Err(err)
