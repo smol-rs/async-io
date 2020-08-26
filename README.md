@@ -32,11 +32,9 @@ To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Andr
 [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows. That
 functionality is provided by the [`polling`] crate.
 
-However, note that you can also process I/O events and wake futures manually if using the
-`parking` module. The "async-io" thread is therefore just a fallback mechanism processing I/O
-events in case you forget to or choose not to do that manually.
-
-See the `parking` module for more details.
+However, note that you can also process I/O events and wake futures on any thread using the
+`block_on()` function. The "async-io" thread is therefore just a fallback mechanism
+processing I/O events in case no other threads are.
 
 [epoll]: https://en.wikipedia.org/wiki/Epoll
 [kqueue]: https://en.wikipedia.org/wiki/Kqueue
