@@ -1,3 +1,7 @@
+# Version 0.6.0
+
+- Remove the `unblock!` macro.
+
 # Version 0.5.2
 
 - Implement `Sync` for `Unblock`.
