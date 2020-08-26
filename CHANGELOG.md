@@ -1,3 +1,7 @@
+# Version 0.2.1
+
+- Update readme.
+
 # Version 0.2.0
 
 - Replace `parking` module with `block_on()`.
