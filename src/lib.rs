@@ -306,46 +306,6 @@ where
         .expect("`unblock()` operation has panicked")
 }
 
-/// Runs blocking code on a thread pool.
-///
-/// # Desugaring
-///
-/// Note that `unblock!(expr)` is syntax sugar for:
-///
-/// ```ignore
-/// unblock(move || expr).await
-/// ```
-///
-/// # Examples
-///
-/// Read the contents of a file:
-///
-/// ```no_run
-/// use blocking::unblock;
-/// use std::fs;
-///
-/// # futures_lite::future::block_on(async {
-/// let contents = unblock!(fs::read_to_string("file.txt"))?;
-/// # std::io::Result::Ok(()) });
-/// ```
-///
-/// Spawn a process:
-///
-/// ```no_run
-/// use blocking::unblock;
-/// use std::process::Command;
-///
-/// # futures_lite::future::block_on(async {
-/// let out = unblock!(Command::new("dir").output())?;
-/// # std::io::Result::Ok(()) });
-/// ```
-#[macro_export]
-macro_rules! unblock {
-    ($($code:tt)*) => {
-        $crate::unblock(move || { $($code)* }).await
-    };
-}
-
 /// Runs blocking I/O on a thread pool.
 ///
 /// Blocking I/O must be isolated from async code. This type moves blocking I/O operations onto a
