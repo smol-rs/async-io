@@ -1,3 +1,8 @@
+# Version 0.2.0
+
+- Replace `parking` module with `block_on()`.
+- Fix a bug in `Async::<UnixStream>::connect()`.
+
 # Version 0.1.11
 
 - Bug fix: clear events list before polling.
