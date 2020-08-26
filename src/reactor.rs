@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io;
 use std::mem;
@@ -6,9 +7,9 @@ use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawSocket;
 use std::panic;
-use std::sync::atomic::{AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::task::{Poll, Waker};
+use std::task::{Context, Poll, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -17,15 +18,16 @@ use futures_lite::*;
 use once_cell::sync::Lazy;
 use polling::{Event, Poller};
 use vec_arena::Arena;
+use waker_fn::waker_fn;
 
 /// The reactor.
 ///
 /// There is only one global instance of this type, accessible by [`Reactor::get()`].
 pub(crate) struct Reactor {
-    /// Number of active `Parker`s.
-    parker_count: AtomicUsize,
+    /// Number of active `block_on()`s.
+    block_on_count: AtomicUsize,
 
-    /// Unparks the async-io thread.
+    /// Unparks the "async-io" thread.
     thread_unparker: parking::Unparker,
 
     /// Bindings to epoll/kqueue/event ports/wepoll.
@@ -71,7 +73,7 @@ impl Reactor {
                 .expect("cannot spawn async-io thread");
 
             Reactor {
-                parker_count: AtomicUsize::new(0),
+                block_on_count: AtomicUsize::new(0),
                 thread_unparker: unparker,
                 poller: Poller::new().expect("cannot initialize I/O event notification"),
                 ticker: AtomicUsize::new(0),
@@ -84,7 +86,7 @@ impl Reactor {
         &REACTOR
     }
 
-    /// The main loop for the async-io thread.
+    /// The main loop for the "async-io" thread.
     fn main_loop(&self, parker: parking::Parker) {
         // The last observed reactor tick.
         let mut last_tick = 0;
@@ -103,7 +105,7 @@ impl Reactor {
                     self.try_lock()
                 };
 
-                if let Some(reactor_lock) = reactor_lock {
+                if let Some(mut reactor_lock) = reactor_lock {
                     let _ = reactor_lock.react(None);
                     last_tick = self.ticker.load(Ordering::SeqCst);
                     sleeps = 0;
@@ -112,7 +114,7 @@ impl Reactor {
                 last_tick = tick;
             }
 
-            if self.parker_count.load(Ordering::SeqCst) > 0 {
+            if self.block_on_count.load(Ordering::SeqCst) > 0 {
                 // Exponential backoff from 50us to 10ms.
                 let delay_us = [50, 75, 100, 250, 500, 750, 1000, 2500, 5000]
                     .get(sleeps as usize)
@@ -129,20 +131,73 @@ impl Reactor {
         }
     }
 
-    /// Increments the number of `Parker`s.
-    pub(crate) fn increment_parkers(&self) {
-        self.parker_count.fetch_add(1, Ordering::SeqCst);
-    }
+    /// Blocks the current thread on a future, processing I/O events when idle.
+    pub(crate) fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
+        // Increment `block_on_count` so that the "async-io" thread becomes less aggressive.
+        self.block_on_count.fetch_add(1, Ordering::SeqCst);
 
-    /// Decrements the number of `Parker`s.
-    pub(crate) fn decrement_parkers(&self) {
-        self.parker_count.fetch_sub(1, Ordering::SeqCst);
-        self.thread_unparker.unpark();
-    }
+        // Make sure to decrement `block_on_count` at the end and wake the "async-io" thread.
+        let _guard = CallOnDrop(|| {
+            Reactor::get().block_on_count.fetch_sub(1, Ordering::SeqCst);
+            Reactor::get().thread_unparker.unpark();
+        });
 
-    /// Notifies the thread blocked on the reactor.
-    pub(crate) fn notify(&self) {
-        self.poller.notify().expect("failed to notify reactor");
+        // Parker and unparker for notifying the current thread.
+        let (p, u) = parking::pair();
+        // This boolean is set to `true` when the current thread is waiting on I/O.
+        let io = Arc::new(AtomicBool::new(false));
+
+        thread_local! {
+            // Indicates that the current thread is waiting on I/O.
+            static IO: Cell<bool> = Cell::new(false);
+        }
+
+        // Prepare the waker.
+        let waker = waker_fn({
+            let io = io.clone();
+            move || {
+                if u.unpark() {
+                    // Check if waking from another thread and if currently waiting on I/O.
+                    if !IO.with(Cell::get) && io.load(Ordering::SeqCst) {
+                        Reactor::get().notify();
+                    }
+                }
+            }
+        });
+        let cx = &mut Context::from_waker(&waker);
+        pin!(future);
+
+        loop {
+            // Poll the future.
+            if let Poll::Ready(t) = future.as_mut().poll(cx) {
+                return t;
+            }
+
+            // Try grabbing a lock on the reactor to wait on I/O.
+            if let Some(mut reactor_lock) = Reactor::get().try_lock() {
+                // First let others know this parker is waiting on I/O.
+                IO.with(|io| io.set(true));
+                io.store(true, Ordering::SeqCst);
+                let _guard = CallOnDrop(|| {
+                    io.store(false, Ordering::SeqCst);
+                    IO.with(|io| io.set(false));
+                });
+
+                // Process available I/O events without blocking.
+                let _ = reactor_lock.react(Some(Duration::from_secs(0)));
+
+                // Check if a notification was received.
+                if p.park_timeout(Duration::from_secs(0)) {
+                    continue;
+                }
+
+                // Wait for I/O events.
+                let _ = reactor_lock.react(None);
+            }
+
+            // Wait for an actual notification.
+            p.park();
+        }
     }
 
     /// Registers an I/O source in the reactor.
@@ -215,15 +270,20 @@ impl Reactor {
         }
     }
 
+    /// Notifies the thread blocked on the reactor.
+    fn notify(&self) {
+        self.poller.notify().expect("failed to notify reactor");
+    }
+
     /// Locks the reactor, potentially blocking if the lock is held by another thread.
-    pub(crate) fn lock(&self) -> ReactorLock<'_> {
+    fn lock(&self) -> ReactorLock<'_> {
         let reactor = self;
         let events = self.events.lock().unwrap();
         ReactorLock { reactor, events }
     }
 
     /// Attempts to lock the reactor.
-    pub(crate) fn try_lock(&self) -> Option<ReactorLock<'_>> {
+    fn try_lock(&self) -> Option<ReactorLock<'_>> {
         self.events.try_lock().ok().map(|events| {
             let reactor = self;
             ReactorLock { reactor, events }
@@ -285,14 +345,14 @@ impl Reactor {
 }
 
 /// A lock on the reactor.
-pub(crate) struct ReactorLock<'a> {
+struct ReactorLock<'a> {
     reactor: &'a Reactor,
     events: MutexGuard<'a, Vec<Event>>,
 }
 
 impl ReactorLock<'_> {
     /// Processes new events, blocking until the first event or the timeout.
-    pub(crate) fn react(mut self, timeout: Option<Duration>) -> io::Result<()> {
+    fn react(&mut self, timeout: Option<Duration>) -> io::Result<()> {
         let mut wakers = Vec::new();
 
         // Process ready timers.
@@ -341,7 +401,7 @@ impl ReactorLock<'_> {
                             wakers.append(&mut w.readers);
                             source
                                 .wakers_registered
-                                .fetch_and(!Source::READERS_REGISTERED, Ordering::SeqCst);
+                                .fetch_and(!READERS_REGISTERED, Ordering::SeqCst);
                         }
 
                         // Wake writers if a writability event was emitted.
@@ -350,7 +410,7 @@ impl ReactorLock<'_> {
                             wakers.append(&mut w.writers);
                             source
                                 .wakers_registered
-                                .fetch_and(!Source::WRITERS_REGISTERED, Ordering::SeqCst);
+                                .fetch_and(!WRITERS_REGISTERED, Ordering::SeqCst);
                         }
 
                         // Re-register if there are still writers or
@@ -416,9 +476,14 @@ pub(crate) struct Source {
     /// Tasks interested in events on this source.
     wakers: Mutex<Wakers>,
 
-    /// Whether there are wakers interrested in events on this source.
+    /// Whether there are wakers interested in events on this source.
+    ///
+    /// Hold two bits of information: `READERS_REGISTERED` and `WRITERS_REGISTERED`.
     wakers_registered: AtomicU8,
 }
+
+const READERS_REGISTERED: u8 = 1 << 0;
+const WRITERS_REGISTERED: u8 = 1 << 1;
 
 /// Tasks interested in events on a source.
 #[derive(Debug)]
@@ -437,9 +502,6 @@ struct Wakers {
 }
 
 impl Source {
-    const READERS_REGISTERED: u8 = 1 << 0;
-    const WRITERS_REGISTERED: u8 = 1 << 1;
-
     /// Waits until the I/O source is readable.
     pub(crate) async fn readable(&self) -> io::Result<()> {
         let mut ticks = None;
@@ -467,7 +529,7 @@ impl Source {
                     },
                 )?;
                 self.wakers_registered
-                    .fetch_or(Self::READERS_REGISTERED, Ordering::SeqCst);
+                    .fetch_or(READERS_REGISTERED, Ordering::SeqCst);
             }
 
             // Register the current task's waker if not present already.
@@ -475,7 +537,7 @@ impl Source {
                 w.readers.push(cx.waker().clone());
                 if limit_waker_list(&mut w.readers) {
                     self.wakers_registered
-                        .fetch_and(!Self::READERS_REGISTERED, Ordering::SeqCst);
+                        .fetch_and(!READERS_REGISTERED, Ordering::SeqCst);
                 }
             }
 
@@ -493,8 +555,7 @@ impl Source {
     }
 
     pub(crate) fn readers_registered(&self) -> bool {
-        self.wakers_registered.load(Ordering::SeqCst) & Self::READERS_REGISTERED
-            == Self::READERS_REGISTERED
+        self.wakers_registered.load(Ordering::SeqCst) & READERS_REGISTERED != 0
     }
 
     /// Waits until the I/O source is writable.
@@ -524,7 +585,7 @@ impl Source {
                     },
                 )?;
                 self.wakers_registered
-                    .fetch_or(Self::WRITERS_REGISTERED, Ordering::SeqCst);
+                    .fetch_or(WRITERS_REGISTERED, Ordering::SeqCst);
             }
 
             // Register the current task's waker if not present already.
@@ -532,7 +593,7 @@ impl Source {
                 w.writers.push(cx.waker().clone());
                 if limit_waker_list(&mut w.writers) {
                     self.wakers_registered
-                        .fetch_and(!Self::WRITERS_REGISTERED, Ordering::SeqCst);
+                        .fetch_and(!WRITERS_REGISTERED, Ordering::SeqCst);
                 }
             }
 
@@ -550,8 +611,7 @@ impl Source {
     }
 
     pub(crate) fn writers_registered(&self) -> bool {
-        self.wakers_registered.load(Ordering::SeqCst) & Self::WRITERS_REGISTERED
-            == Self::WRITERS_REGISTERED
+        self.wakers_registered.load(Ordering::SeqCst) & WRITERS_REGISTERED != 0
     }
 }
 
@@ -577,5 +637,14 @@ fn limit_waker_list(wakers: &mut Vec<Waker>) -> bool {
         true
     } else {
         false
+    }
+}
+
+/// Runs a closure when dropped.
+struct CallOnDrop<F: Fn()>(F);
+
+impl<F: Fn()> Drop for CallOnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)();
     }
 }

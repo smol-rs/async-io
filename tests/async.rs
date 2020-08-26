@@ -343,11 +343,11 @@ fn close() -> io::Result<()> {
         let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
         let addr = listener.get_ref().local_addr()?;
         let ((mut reader, _), mut writer) =
-            future::try_join(listener.accept(), Async::<TcpStream>::connect(addr)).await?;
+            future::try_zip(listener.accept(), Async::<TcpStream>::connect(addr)).await?;
 
         // The writer must be closed in order for `read_to_end()` to finish.
         let mut buf = Vec::new();
-        future::try_join(reader.read_to_end(&mut buf), writer.close()).await?;
+        future::try_zip(reader.read_to_end(&mut buf), writer.close()).await?;
 
         Ok(())
     })

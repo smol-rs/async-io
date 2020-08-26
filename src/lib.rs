@@ -21,11 +21,9 @@
 //! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows. That
 //! functionality is provided by the [`polling`] crate.
 //!
-//! However, note that you can also process I/O events and wake futures manually if using the
-//! [`parking`] module. The "async-io" thread is therefore just a fallback mechanism processing I/O
-//! events in case you forget to or choose not to do that manually.
-//!
-//! See the [`parking`] module for more details.
+//! However, note that you can also process I/O events and wake futures on any thread using the
+//! [`block_on()`] function. The "async-io" thread is therefore just a fallback mechanism
+//! processing I/O events in case no other threads are.
 //!
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -81,8 +79,25 @@ use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::reactor::{Reactor, Source};
 
-pub mod parking;
 mod reactor;
+
+/// Blocks the current thread on a future, processing I/O events when idle.
+///
+/// # Examples
+///
+/// ```
+/// use async_io::Timer;
+/// use std::time::Duration;
+///
+/// async_io::block_on(async {
+///     // This timer will likely be processed by the current
+///     // thread rather than the fallback "async-io" thread.
+///     Timer::after(Duration::from_millis(1)).await;
+/// });
+/// ```
+pub fn block_on<T>(future: impl Future<Output = T>) -> T {
+    Reactor::get().block_on(future)
+}
 
 /// A future that expires at a point in time.
 ///

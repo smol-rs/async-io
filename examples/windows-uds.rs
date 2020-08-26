@@ -35,7 +35,7 @@ fn main() -> std::io::Result<()> {
         let listener = Async::new(UnixListener::bind(&path)?)?;
         println!("Listening on {:?}", listener.get_ref().local_addr()?);
 
-        future::try_join(
+        future::try_zip(
             async {
                 // Accept the client.
                 let (stream, _) = listener.read_with(|l| l.accept()).await?;
