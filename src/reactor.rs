@@ -144,21 +144,21 @@ impl Reactor {
 
         // Parker and unparker for notifying the current thread.
         let (p, u) = parking::pair();
-        // This boolean is set to `true` when the current thread is waiting on I/O.
-        let io = Arc::new(AtomicBool::new(false));
+        // This boolean is set to `true` when the current thread is blocked on I/O.
+        let io_blocked = Arc::new(AtomicBool::new(false));
 
         thread_local! {
-            // Indicates that the current thread is waiting on I/O.
-            static IO: Cell<bool> = Cell::new(false);
+            // Indicates that the current thread is polling I/O, but not necessarily blocked on it.
+            static IO_POLLING: Cell<bool> = Cell::new(false);
         }
 
         // Prepare the waker.
         let waker = waker_fn({
-            let io = io.clone();
+            let io_blocked = io_blocked.clone();
             move || {
                 if u.unpark() {
-                    // Check if waking from another thread and if currently waiting on I/O.
-                    if !IO.with(Cell::get) && io.load(Ordering::SeqCst) {
+                    // Check if waking from another thread and if currently blocked on I/O.
+                    if !IO_POLLING.with(Cell::get) && io_blocked.load(Ordering::SeqCst) {
                         Reactor::get().notify();
                     }
                 }
@@ -173,30 +173,50 @@ impl Reactor {
                 return t;
             }
 
-            // Try grabbing a lock on the reactor to wait on I/O.
-            if let Some(mut reactor_lock) = Reactor::get().try_lock() {
-                // First let others know this parker is waiting on I/O.
-                IO.with(|io| io.set(true));
-                io.store(true, Ordering::SeqCst);
-                let _guard = CallOnDrop(|| {
-                    io.store(false, Ordering::SeqCst);
-                    IO.with(|io| io.set(false));
-                });
+            // Check if a notification was received.
+            if p.park_timeout(Duration::from_secs(0)) {
+                // Try grabbing a lock on the reactor to process I/O events.
+                if let Some(mut reactor_lock) = Reactor::get().try_lock() {
+                    // First let wakers know this parker is processing I/O events.
+                    IO_POLLING.with(|io| io.set(true));
+                    let _guard = CallOnDrop(|| {
+                        IO_POLLING.with(|io| io.set(false));
+                    });
 
-                // Process available I/O events without blocking.
-                let _ = reactor_lock.react(Some(Duration::from_secs(0)));
-
-                // Check if a notification was received.
-                if p.park_timeout(Duration::from_secs(0)) {
-                    continue;
+                    // Process available I/O events.
+                    let _ = reactor_lock.react(Some(Duration::from_secs(0)));
                 }
-
-                // Wait for I/O events.
-                let _ = reactor_lock.react(None);
+                continue;
             }
 
-            // Wait for an actual notification.
-            p.park();
+            // Try grabbing a lock on the reactor to wait on I/O.
+            if let Some(mut reactor_lock) = Reactor::get().try_lock() {
+                loop {
+                    // First let wakers know this parker is blocked on I/O.
+                    IO_POLLING.with(|io| io.set(true));
+                    io_blocked.store(true, Ordering::SeqCst);
+                    let _guard = CallOnDrop(|| {
+                        IO_POLLING.with(|io| io.set(false));
+                        io_blocked.store(false, Ordering::SeqCst);
+                    });
+
+                    // Check if a notification has been received.
+                    if p.park_timeout(Duration::from_secs(0)) {
+                        break;
+                    }
+
+                    // Wait for I/O events.
+                    let _ = reactor_lock.react(None);
+
+                    // Check if a notification has been received.
+                    if p.park_timeout(Duration::from_secs(0)) {
+                        break;
+                    }
+                }
+            } else {
+                // Wait for an actual notification.
+                p.park();
+            }
         }
     }
 
