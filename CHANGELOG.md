@@ -1,3 +1,7 @@
+# Version 0.2.3
+
+- Performance optimizations in `block_on()`.
+
 # Version 0.2.2
 
 - Add probabilistic yielding to improve fairness.
