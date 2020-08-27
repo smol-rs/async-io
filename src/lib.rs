@@ -1222,6 +1222,9 @@ impl Async<UnixStream> {
         // The stream becomes writable when connected.
         stream.writable().await?;
 
+        // On Linux, it appears the socket may become writable even when connecting fails, so we
+        // must do an extra check here and see if the peer address is retrievable.
+        stream.get_ref().peer_addr()?;
         Ok(stream)
     }
 
