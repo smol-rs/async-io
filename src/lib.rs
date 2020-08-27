@@ -535,11 +535,15 @@ impl<T> Async<T> {
         loop {
             // If there are no blocked readers, attempt the read operation.
             if !self.source.readers_registered() {
+                // Yield with some small probability - this improves fairness.
+                maybe_yield().await;
+
                 match op(self.get_ref()) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                     res => return res,
                 }
             }
+
             // Wait until the I/O handle becomes readable.
             optimistic(self.readable()).await?;
         }
@@ -575,11 +579,15 @@ impl<T> Async<T> {
         loop {
             // If there are no blocked readers, attempt the read operation.
             if !self.source.readers_registered() {
+                // Yield with some small probability - this improves fairness.
+                maybe_yield().await;
+
                 match op(self.get_mut()) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                     res => return res,
                 }
             }
+
             // Wait until the I/O handle becomes readable.
             optimistic(self.readable()).await?;
         }
@@ -613,11 +621,15 @@ impl<T> Async<T> {
         loop {
             // If there are no blocked readers, attempt the write operation.
             if !self.source.writers_registered() {
+                // Yield with some small probability - this improves fairness.
+                maybe_yield().await;
+
                 match op(self.get_ref()) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                     res => return res,
                 }
             }
+
             // Wait until the I/O handle becomes writable.
             optimistic(self.writable()).await?;
         }
@@ -654,11 +666,15 @@ impl<T> Async<T> {
         loop {
             // If there are no blocked readers, attempt the write operation.
             if !self.source.writers_registered() {
+                // Yield with some small probability - this improves fairness.
+                maybe_yield().await;
+
                 match op(self.get_mut()) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                     res => return res,
                 }
             }
+
             // Wait until the I/O handle becomes writable.
             optimistic(self.writable()).await?;
         }
@@ -1393,6 +1409,13 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
         }
     })
     .await
+}
+
+/// Yield with some small probability.
+async fn maybe_yield() {
+    if fastrand::usize(..100) == 0 {
+        future::yield_now().await;
+    }
 }
 
 /// Shuts down the write side of a socket.
