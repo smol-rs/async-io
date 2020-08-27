@@ -1,3 +1,7 @@
+# Version 0.2.2
+
+- Add probabilistic yielding to improve fairness.
+
 # Version 0.2.1
 
 - Update readme.
