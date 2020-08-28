@@ -1,3 +1,7 @@
+# Version 0.6.1
+
+- Add probabilistic yielding to improve fairness.
+
 # Version 0.6.0
 
 - Remove the `unblock!` macro.
