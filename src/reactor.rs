@@ -1,6 +1,10 @@
+//! Reactor module. Normal users do not need to use anything here; this is
+//! exposed only for convenience for alternative reactor implementations.
+
 use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io;
+use std::marker::PhantomData;
 use std::mem;
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
@@ -23,6 +27,7 @@ use waker_fn::waker_fn;
 /// The reactor.
 ///
 /// There is only one global instance of this type, accessible by [`Reactor::get()`].
+#[derive(Debug)]
 pub(crate) struct Reactor {
     /// Number of active `block_on()`s.
     block_on_count: AtomicUsize,
@@ -281,6 +286,7 @@ impl Reactor {
                 writers: Vec::new(),
             }),
             wakers_registered: AtomicU8::new(0),
+            reactor: PhantomData,
         });
         sources.insert(source.clone());
 
@@ -453,40 +459,7 @@ impl ReactorLock<'_> {
                 for ev in self.events.iter() {
                     // Check if there is a source in the table with this key.
                     if let Some(source) = sources.get(ev.key) {
-                        let mut w = source.wakers.lock().unwrap();
-
-                        // Wake readers if a readability event was emitted.
-                        if ev.readable {
-                            w.tick_readable = tick;
-                            wakers.append(&mut w.readers);
-                            source
-                                .wakers_registered
-                                .fetch_and(!READERS_REGISTERED, Ordering::SeqCst);
-                        }
-
-                        // Wake writers if a writability event was emitted.
-                        if ev.writable {
-                            w.tick_writable = tick;
-                            wakers.append(&mut w.writers);
-                            source
-                                .wakers_registered
-                                .fetch_and(!WRITERS_REGISTERED, Ordering::SeqCst);
-                        }
-
-                        // Re-register if there are still writers or
-                        // readers. The can happen if e.g. we were
-                        // previously interested in both readability and
-                        // writability, but only one of them was emitted.
-                        if !(w.writers.is_empty() && w.readers.is_empty()) {
-                            self.reactor.poller.interest(
-                                source.raw,
-                                Event {
-                                    key: source.key,
-                                    readable: !w.readers.is_empty(),
-                                    writable: !w.writers.is_empty(),
-                                },
-                            )?;
-                        }
+                        source.wake(&mut wakers, ev.readable, ev.writable, tick)?;
                     }
                 }
 
@@ -519,17 +492,9 @@ enum TimerOp {
 
 /// A registered source of I/O events.
 #[derive(Debug)]
-pub(crate) struct Source {
-    /// Raw file descriptor on Unix platforms.
-    #[cfg(unix)]
-    pub(crate) raw: RawFd,
-
-    /// Raw socket handle on Windows.
-    #[cfg(windows)]
-    pub(crate) raw: RawSocket,
-
+pub struct GSource<R, T: ?Sized> {
     /// The key of this source obtained during registration.
-    key: usize,
+    pub key: usize,
 
     /// Tasks interested in events on this source.
     wakers: Mutex<Wakers>,
@@ -538,9 +503,26 @@ pub(crate) struct Source {
     ///
     /// Hold two bits of information: `READERS_REGISTERED` and `WRITERS_REGISTERED`.
     wakers_registered: AtomicU8,
+
+    /// Phantom field symbolising the type of the reactor.
+    reactor: PhantomData<R>,
+
+    /// Raw inner source.
+    ///
+    /// This could be dynamically-sized so must be the last field.
+    pub raw: T,
 }
 
+#[cfg(unix)]
+type RawSource = RawFd;
+#[cfg(windows)]
+type RawSource = RawSocket;
+
+pub(crate) type Source = GSource<Reactor, RawSource>;
+
+/// Index of readers in [`GSource::wakers_registered`].
 const READERS_REGISTERED: u8 = 1 << 0;
+/// Index of writers in [`GSource::wakers_registered`].
 const WRITERS_REGISTERED: u8 = 1 << 1;
 
 /// Tasks interested in events on a source.
@@ -559,9 +541,60 @@ struct Wakers {
     writers: Vec<Waker>,
 }
 
-impl Source {
+impl Wakers {
+    /// Create a new [`Waker`].
+    pub fn new() -> Wakers {
+        Wakers {
+            tick_readable: 0,
+            tick_writable: 0,
+            readers: Vec::new(),
+            writers: Vec::new(),
+        }
+    }
+}
+
+/// Trait for operations needed by a [`GSource`] on its associated reactor.
+pub trait SourceReactor<T: ?Sized> {
+    /// Get the associated reactor's current tick.
+    fn get_current_tick() -> usize;
+
+    /// Register interest in the associated reactor's system poller.
+    fn poller_interest(raw: &T, key: usize, readable: bool, writable: bool) -> io::Result<()>;
+}
+
+impl SourceReactor<RawSource> for Reactor {
+    fn get_current_tick() -> usize {
+        Reactor::get().ticker.load(Ordering::SeqCst)
+    }
+
+    fn poller_interest(raw: &RawSource, key: usize, readable: bool, writable: bool) -> io::Result<()> {
+        Reactor::get().poller.interest(
+            *raw,
+            Event {
+                key,
+                readable,
+                writable,
+            },
+        )
+    }
+}
+
+impl<R, T> GSource<R, T> {
+    /// Create a new [`GSource`].
+    pub fn new(raw: T, key: usize) -> GSource<R, T> {
+        GSource {
+            raw,
+            key,
+            wakers: Mutex::new(Wakers::new()),
+            wakers_registered: AtomicU8::new(0),
+            reactor: PhantomData,
+        }
+    }
+}
+
+impl<R, T: ?Sized> GSource<R, T> where R: SourceReactor<T> {
     /// Waits until the I/O source is readable.
-    pub(crate) async fn readable(&self) -> io::Result<()> {
+    pub async fn readable(&self) -> io::Result<()> {
         let mut ticks = None;
 
         future::poll_fn(|cx| {
@@ -579,13 +612,11 @@ impl Source {
 
             // If there are no other readers, re-register in the reactor.
             if w.readers.is_empty() {
-                Reactor::get().poller.interest(
-                    self.raw,
-                    Event {
-                        key: self.key,
-                        readable: true,
-                        writable: !w.writers.is_empty(),
-                    },
+                R::poller_interest(
+                    &self.raw,
+                    self.key,
+                    true,
+                    !w.writers.is_empty(),
                 )?;
                 self.wakers_registered
                     .fetch_or(READERS_REGISTERED, Ordering::SeqCst);
@@ -603,7 +634,7 @@ impl Source {
             // Remember the current ticks.
             if ticks.is_none() {
                 ticks = Some((
-                    Reactor::get().ticker.load(Ordering::SeqCst),
+                    R::get_current_tick(),
                     w.tick_readable,
                 ));
             }
@@ -613,12 +644,13 @@ impl Source {
         .await
     }
 
-    pub(crate) fn readers_registered(&self) -> bool {
+    /// Whether there are readers interested in events on this source.
+    pub fn readers_registered(&self) -> bool {
         self.wakers_registered.load(Ordering::SeqCst) & READERS_REGISTERED != 0
     }
 
     /// Waits until the I/O source is writable.
-    pub(crate) async fn writable(&self) -> io::Result<()> {
+    pub async fn writable(&self) -> io::Result<()> {
         let mut ticks = None;
 
         future::poll_fn(|cx| {
@@ -636,13 +668,11 @@ impl Source {
 
             // If there are no other writers, re-register in the reactor.
             if w.writers.is_empty() {
-                Reactor::get().poller.interest(
-                    self.raw,
-                    Event {
-                        key: self.key,
-                        readable: !w.readers.is_empty(),
-                        writable: true,
-                    },
+                R::poller_interest(
+                    &self.raw,
+                    self.key,
+                    !w.readers.is_empty(),
+                    true,
                 )?;
                 self.wakers_registered
                     .fetch_or(WRITERS_REGISTERED, Ordering::SeqCst);
@@ -660,7 +690,7 @@ impl Source {
             // Remember the current ticks.
             if ticks.is_none() {
                 ticks = Some((
-                    Reactor::get().ticker.load(Ordering::SeqCst),
+                    R::get_current_tick(),
                     w.tick_writable,
                 ));
             }
@@ -670,8 +700,47 @@ impl Source {
         .await
     }
 
-    pub(crate) fn writers_registered(&self) -> bool {
+    /// Whether there are writers interested in events on this source.
+    pub fn writers_registered(&self) -> bool {
         self.wakers_registered.load(Ordering::SeqCst) & WRITERS_REGISTERED != 0
+    }
+
+    /// Wake the relevant wakers interested in this source.
+    pub fn wake(&self, wakers: &mut Vec<Waker>, readable: bool, writable: bool, tick: usize) -> io::Result<()> {
+        let mut w = self.wakers.lock().unwrap();
+
+        // Wake readers if a readability event was emitted.
+        if readable {
+            w.tick_readable = tick;
+            wakers.append(&mut w.readers);
+            self
+                .wakers_registered
+                .fetch_and(!READERS_REGISTERED, Ordering::SeqCst);
+        }
+
+        // Wake writers if a writability event was emitted.
+        if writable {
+            w.tick_writable = tick;
+            wakers.append(&mut w.writers);
+            self
+                .wakers_registered
+                .fetch_and(!WRITERS_REGISTERED, Ordering::SeqCst);
+        }
+
+        // Re-register if there are still writers or
+        // readers. The can happen if e.g. we were
+        // previously interested in both readability and
+        // writability, but only one of them was emitted.
+        if !(w.writers.is_empty() && w.readers.is_empty()) {
+            R::poller_interest(
+                &self.raw,
+                self.key,
+                !w.readers.is_empty(),
+                !w.writers.is_empty(),
+            )?;
+        }
+
+        Ok(())
     }
 }
 

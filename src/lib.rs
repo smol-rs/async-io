@@ -79,7 +79,7 @@ use socket2::{Domain, Protocol, Socket, Type};
 
 use crate::reactor::{Reactor, Source};
 
-mod reactor;
+pub mod reactor;
 
 /// Blocks the current thread on a future, processing I/O events when idle.
 ///
