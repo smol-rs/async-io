@@ -1,3 +1,7 @@
+# Version 0.2.4
+
+- Prevent threads in `async_io::block_on()` from hogging the reactor forever.
+
 # Version 0.2.3
 
 - Performance optimizations in `block_on()`.
