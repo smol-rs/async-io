@@ -1083,6 +1083,9 @@ impl Reader {
         // The pipe is not empty so remove the waker.
         self.inner.reader.take();
 
+        // Yield with some small probability - this improves fairness.
+        ready!(maybe_yield(cx));
+
         // Given an index in `0..2*cap`, returns the real index in `0..cap`.
         let real_index = |i: usize| {
             if i < cap {
@@ -1177,6 +1180,9 @@ impl Writer {
         // The pipe is not full so remove the waker.
         self.inner.writer.take();
 
+        // Yield with some small probability - this improves fairness.
+        ready!(maybe_yield(cx));
+
         // Given an index in `0..2*cap`, returns the real index in `0..cap`.
         let real_index = |i: usize| {
             if i < cap {
@@ -1235,5 +1241,15 @@ impl Writer {
             // Wake the reader because the pipe is not empty.
             self.inner.reader.wake();
         }
+    }
+}
+
+/// Yield with some small probability.
+fn maybe_yield(cx: &mut Context<'_>) -> Poll<()> {
+    if fastrand::usize(..100) == 0 {
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    } else {
+        Poll::Ready(())
     }
 }
