@@ -60,14 +60,14 @@ use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::mem::ManuallyDrop;
 use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 #[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, FromRawSocket, RawSocket};
+use std::os::windows::io::AsRawSocket;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 #[cfg(unix)]
 use std::{
-    os::unix::io::{AsRawFd, FromRawFd, RawFd},
+    os::unix::io::AsRawFd,
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
@@ -77,8 +77,10 @@ use futures_lite::stream::{self, Stream};
 use futures_lite::{future, pin};
 use socket2::{Domain, Protocol, Socket, Type};
 
+use crate::sys::*;
 use crate::reactor::{Reactor, Source};
 
+pub(crate) mod sys;
 mod reactor;
 
 /// Blocks the current thread on a future, processing I/O events when idle.
@@ -324,15 +326,13 @@ pub struct Async<T> {
     io: Option<Box<T>>,
 }
 
-#[cfg(unix)]
-impl<T: AsRawFd> Async<T> {
+impl<T: AsRawSource> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This function will put the handle in non-blocking mode and register it in
     /// [epoll]/[kqueue]/[event ports]/[wepoll].
     ///
-    /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
-    /// `AsRawSocket`.
+    /// The handle must implement `AsRawSource`.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -352,56 +352,22 @@ impl<T: AsRawFd> Async<T> {
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
         Ok(Async {
-            source: Reactor::get().insert_io(io.as_raw_fd())?,
+            source: Reactor::get().insert_io(io.as_raw_source())?,
             io: Some(Box::new(io)),
         })
     }
 }
 
 #[cfg(unix)]
-impl<T: AsRawFd> AsRawFd for Async<T> {
-    fn as_raw_fd(&self) -> RawFd {
+impl<T: AsRawSource> AsRawFd for Async<T> {
+    fn as_raw_fd(&self) -> RawSource {
         self.source.raw
     }
 }
 
 #[cfg(windows)]
-impl<T: AsRawSocket> Async<T> {
-    /// Creates an async I/O handle.
-    ///
-    /// This function will put the handle in non-blocking mode and register it in
-    /// [epoll]/[kqueue]/[event ports]/[wepoll].
-    ///
-    /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
-    /// `AsRawSocket`.
-    ///
-    /// [epoll]: https://en.wikipedia.org/wiki/Epoll
-    /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
-    /// [event ports]: https://illumos.org/man/port_create
-    /// [wepoll]: https://github.com/piscisaureus/wepoll
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use async_io::Async;
-    /// use std::net::{SocketAddr, TcpListener};
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let listener = TcpListener::bind(SocketAddr::from(([127, 0, 0, 1], 0)))?;
-    /// let listener = Async::new(listener)?;
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub fn new(io: T) -> io::Result<Async<T>> {
-        Ok(Async {
-            source: Reactor::get().insert_io(io.as_raw_socket())?,
-            io: Some(Box::new(io)),
-        })
-    }
-}
-
-#[cfg(windows)]
-impl<T: AsRawSocket> AsRawSocket for Async<T> {
-    fn as_raw_socket(&self) -> RawSocket {
+impl<T: AsRawSource> AsRawSocket for Async<T> {
+    fn as_raw_socket(&self) -> RawSource {
         self.source.raw
     }
 }
@@ -1424,15 +1390,12 @@ async fn maybe_yield() {
 /// Shuts down the write side of a socket.
 ///
 /// If this source is not a socket, the `shutdown()` syscall error is ignored.
-fn shutdown_write(#[cfg(unix)] raw: RawFd, #[cfg(windows)] raw: RawSocket) -> io::Result<()> {
+fn shutdown_write(raw: RawSource) -> io::Result<()> {
     // This may not be a TCP stream, but that's okay. All we do is attempt a `shutdown()` on the
     // raw descriptor and ignore errors.
     let stream = unsafe {
         ManuallyDrop::new(
-            #[cfg(unix)]
-            TcpStream::from_raw_fd(raw),
-            #[cfg(windows)]
-            TcpStream::from_raw_socket(raw),
+            TcpStream::from_raw_source(raw),
         )
     };
 
