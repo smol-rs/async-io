@@ -34,6 +34,11 @@ pub(crate) struct Reactor {
     poller: Poller,
 
     /// Ticker bumped before polling.
+    ///
+    /// This is useful for checking what is the current "round" of `ReactorLock::react()` when
+    /// synchronizing things in `Source::readable()` and `Source::writable()`. Both of those
+    /// methods must make sure they don't receive stale I/O events - they only accept events from a
+    /// fresh "round" of `ReactorLock::react()`.
     ticker: AtomicUsize,
 
     /// Registered sources.
@@ -191,6 +196,9 @@ impl Reactor {
 
             // Try grabbing a lock on the reactor to wait on I/O.
             if let Some(mut reactor_lock) = Reactor::get().try_lock() {
+                // Record the instant at which the lock was grabbed.
+                let start = Instant::now();
+
                 loop {
                     // First let wakers know this parker is blocked on I/O.
                     IO_POLLING.with(|io| io.set(true));
@@ -200,7 +208,8 @@ impl Reactor {
                         io_blocked.store(false, Ordering::SeqCst);
                     });
 
-                    // Check if a notification has been received.
+                    // Check if a notification has been received before `io_blocked` was updated
+                    // because in that case the reactor won't receive a wakeup.
                     if p.park_timeout(Duration::from_secs(0)) {
                         break;
                     }
@@ -210,6 +219,23 @@ impl Reactor {
 
                     // Check if a notification has been received.
                     if p.park_timeout(Duration::from_secs(0)) {
+                        break;
+                    }
+
+                    // Check if this thread been handling I/O events for a long time.
+                    if start.elapsed() > Duration::from_micros(500) {
+                        // This thread is clearly processing I/O events for some other threads
+                        // because it didn't get a notification yet. It's best to stop hogging the
+                        // reactor and give other threads a chance to process I/O events for
+                        // themselves.
+                        drop(reactor_lock);
+
+                        // Unpark the "async-io" thread in case no other thread is ready to start
+                        // processing I/O events. This way we prevent a potential latency spike.
+                        self.thread_unparker.unpark();
+
+                        // Wait for a notification.
+                        p.park();
                         break;
                     }
                 }
