@@ -1,3 +1,8 @@
+# Version 0.2.5
+
+- On Linux, fail fast if `writable()` succeeds after connecting to `UnixStream`,
+  but the connection is not really established.
+
 # Version 0.2.4
 
 - Prevent threads in `async_io::block_on()` from hogging the reactor forever.
