@@ -10,7 +10,7 @@
 fn main() -> std::io::Result<()> {
     use std::ffi::OsString;
 
-    use async_io::Async;
+    use async_io::{Async, AnAsync, AnAsyncExt};
     use futures_lite::*;
     use inotify::{EventMask, Inotify, WatchMask};
 

@@ -13,6 +13,7 @@ categories = ["asynchronous", "network-programming", "os"]
 readme = "README.md"
 
 [dependencies]
+async-trait = "0.1"
 cfg-if = "0.1.10"
 concurrent-queue = "1.2.0"
 fastrand = "1.3.4"

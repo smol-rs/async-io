@@ -10,7 +10,7 @@
 fn main() -> std::io::Result<()> {
     use std::path::PathBuf;
 
-    use async_io::Async;
+    use async_io::{Async, AnAsync, AnAsyncExt};
     use blocking::Unblock;
     use futures_lite::*;
     use tempfile::tempdir;

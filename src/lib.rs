@@ -54,7 +54,9 @@
 //! ```
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
+#![feature(generic_associated_types)]
 
+use std::borrow::{Borrow, BorrowMut};
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::mem::ManuallyDrop;
@@ -71,6 +73,8 @@ use std::{
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
+
+use async_trait::async_trait;
 
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
@@ -300,11 +304,11 @@ impl Future for Timer {
 /// ```
 ///
 /// You can use either predefined async methods or wrap blocking I/O operations in
-/// [`Async::read_with()`], [`Async::read_with_mut()`], [`Async::write_with()`], and
-/// [`Async::write_with_mut()`]:
+/// [`AnAsyncExt::read_with()`], [`AnAsyncExt::read_with_mut()`], [`AnAsyncExt::write_with()`], and
+/// [`AnAsyncExt::write_with_mut()`]:
 ///
 /// ```no_run
-/// use async_io::Async;
+/// use async_io::{Async, AnAsyncExt};
 /// use std::net::TcpListener;
 ///
 /// # futures_lite::future::block_on(async {
@@ -407,40 +411,6 @@ impl<T: AsRawSocket> AsRawSocket for Async<T> {
 }
 
 impl<T> Async<T> {
-    /// Gets a reference to the inner I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use async_io::Async;
-    /// use std::net::TcpListener;
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
-    /// let inner = listener.get_ref();
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub fn get_ref(&self) -> &T {
-        self.io.as_ref().unwrap()
-    }
-
-    /// Gets a mutable reference to the inner I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use async_io::Async;
-    /// use std::net::TcpListener;
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
-    /// let inner = listener.get_mut();
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub fn get_mut(&mut self) -> &mut T {
-        self.io.as_mut().unwrap()
-    }
-
     /// Unwraps the inner I/O handle.
     ///
     /// This method will **not** put the I/O handle back into blocking mode.
@@ -464,221 +434,6 @@ impl<T> Async<T> {
         Reactor::get().remove_io(&self.source)?;
         Ok(io)
     }
-
-    /// Waits until the I/O handle is readable.
-    ///
-    /// This function completes when a read operation on this I/O handle wouldn't block.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use async_io::Async;
-    /// use std::net::TcpListener;
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
-    ///
-    /// // Wait until a client can be accepted.
-    /// listener.readable().await?;
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub async fn readable(&self) -> io::Result<()> {
-        self.source.readable().await
-    }
-
-    /// Waits until the I/O handle is writable.
-    ///
-    /// This function completes when a write operation on this I/O handle wouldn't block.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use async_io::Async;
-    /// use std::net::{TcpStream, ToSocketAddrs};
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
-    /// let stream = Async::<TcpStream>::connect(addr).await?;
-    ///
-    /// // Wait until the stream is writable.
-    /// stream.writable().await?;
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub async fn writable(&self) -> io::Result<()> {
-        self.source.writable().await
-    }
-
-    /// Performs a read operation asynchronously.
-    ///
-    /// The I/O handle is registered in the reactor and put in non-blocking mode. This function
-    /// invokes the `op` closure in a loop until it succeeds or returns an error other than
-    /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
-    /// sends a notification that the I/O handle is readable.
-    ///
-    /// The closure receives a shared reference to the I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use async_io::Async;
-    /// use std::net::TcpListener;
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
-    ///
-    /// // Accept a new client asynchronously.
-    /// let (stream, addr) = listener.read_with(|l| l.accept()).await?;
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub async fn read_with<R>(&self, op: impl FnMut(&T) -> io::Result<R>) -> io::Result<R> {
-        let mut op = op;
-        loop {
-            // If there are no blocked readers, attempt the read operation.
-            if !self.source.readers_registered() {
-                // Yield with some small probability - this improves fairness.
-                maybe_yield().await;
-
-                match op(self.get_ref()) {
-                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                    res => return res,
-                }
-            }
-
-            // Wait until the I/O handle becomes readable.
-            optimistic(self.readable()).await?;
-        }
-    }
-
-    /// Performs a read operation asynchronously.
-    ///
-    /// The I/O handle is registered in the reactor and put in non-blocking mode. This function
-    /// invokes the `op` closure in a loop until it succeeds or returns an error other than
-    /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
-    /// sends a notification that the I/O handle is readable.
-    ///
-    /// The closure receives a mutable reference to the I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use async_io::Async;
-    /// use std::net::TcpListener;
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
-    ///
-    /// // Accept a new client asynchronously.
-    /// let (stream, addr) = listener.read_with_mut(|l| l.accept()).await?;
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub async fn read_with_mut<R>(
-        &mut self,
-        op: impl FnMut(&mut T) -> io::Result<R>,
-    ) -> io::Result<R> {
-        let mut op = op;
-        loop {
-            // If there are no blocked readers, attempt the read operation.
-            if !self.source.readers_registered() {
-                // Yield with some small probability - this improves fairness.
-                maybe_yield().await;
-
-                match op(self.get_mut()) {
-                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                    res => return res,
-                }
-            }
-
-            // Wait until the I/O handle becomes readable.
-            optimistic(self.readable()).await?;
-        }
-    }
-
-    /// Performs a write operation asynchronously.
-    ///
-    /// The I/O handle is registered in the reactor and put in non-blocking mode. This function
-    /// invokes the `op` closure in a loop until it succeeds or returns an error other than
-    /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
-    /// sends a notification that the I/O handle is writable.
-    ///
-    /// The closure receives a shared reference to the I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use async_io::Async;
-    /// use std::net::UdpSocket;
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
-    /// socket.get_ref().connect("127.0.0.1:9000")?;
-    ///
-    /// let msg = b"hello";
-    /// let len = socket.write_with(|s| s.send(msg)).await?;
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub async fn write_with<R>(&self, op: impl FnMut(&T) -> io::Result<R>) -> io::Result<R> {
-        let mut op = op;
-        loop {
-            // If there are no blocked readers, attempt the write operation.
-            if !self.source.writers_registered() {
-                // Yield with some small probability - this improves fairness.
-                maybe_yield().await;
-
-                match op(self.get_ref()) {
-                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                    res => return res,
-                }
-            }
-
-            // Wait until the I/O handle becomes writable.
-            optimistic(self.writable()).await?;
-        }
-    }
-
-    /// Performs a write operation asynchronously.
-    ///
-    /// The I/O handle is registered in the reactor and put in non-blocking mode. This function
-    /// invokes the `op` closure in a loop until it succeeds or returns an error other than
-    /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
-    /// sends a notification that the I/O handle is writable.
-    ///
-    /// The closure receives a mutable reference to the I/O handle.
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use async_io::Async;
-    /// use std::net::UdpSocket;
-    ///
-    /// # futures_lite::future::block_on(async {
-    /// let mut socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
-    /// socket.get_ref().connect("127.0.0.1:9000")?;
-    ///
-    /// let msg = b"hello";
-    /// let len = socket.write_with_mut(|s| s.send(msg)).await?;
-    /// # std::io::Result::Ok(()) });
-    /// ```
-    pub async fn write_with_mut<R>(
-        &mut self,
-        op: impl FnMut(&mut T) -> io::Result<R>,
-    ) -> io::Result<R> {
-        let mut op = op;
-        loop {
-            // If there are no blocked readers, attempt the write operation.
-            if !self.source.writers_registered() {
-                // Yield with some small probability - this improves fairness.
-                maybe_yield().await;
-
-                match op(self.get_mut()) {
-                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                    res => return res,
-                }
-            }
-
-            // Wait until the I/O handle becomes writable.
-            optimistic(self.writable()).await?;
-        }
-    }
 }
 
 impl<T> Drop for Async<T> {
@@ -693,7 +448,318 @@ impl<T> Drop for Async<T> {
     }
 }
 
-impl<T: Read> AsyncRead for Async<T> {
+/// Primitive trait abstracting [`Async`].
+///
+/// This is useful for alternative implementations.
+///
+/// More complex methods are built on top, in the [`AnAsyncExt`] trait.
+#[async_trait]
+pub trait AnAsync<T> {
+    /// A type that can be borrowed to get a reference to the inner I/O handle.
+    type Borrow<'a>: Borrow<T> where T: 'a;
+
+    /// A type that can be mutably borrowed to get a mutable reference to the
+    /// inner I/O handle.
+    type BorrowMut<'a>: BorrowMut<T> where T: 'a;
+
+    /// Gets a reference to the inner I/O handle.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::{Async, AnAsync};
+    /// use std::net::TcpListener;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+    /// let inner = listener.get_ref();
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    fn get_ref<'a>(&'a self) -> Self::Borrow<'a>;
+
+    /// Gets a mutable reference to the inner I/O handle.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::{Async, AnAsync};
+    /// use std::net::TcpListener;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+    /// let inner = listener.get_mut();
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    fn get_mut<'a>(&'a mut self) -> Self::BorrowMut<'a>;
+
+    /// Waits until the I/O handle is readable.
+    ///
+    /// This function completes when a read operation on this I/O handle wouldn't block.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::{Async, AnAsync};
+    /// use std::net::TcpListener;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+    ///
+    /// // Wait until a client can be accepted.
+    /// listener.readable().await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    async fn readable(&self) -> io::Result<()>;
+
+    /// Waits until the I/O handle is writable.
+    ///
+    /// This function completes when a write operation on this I/O handle wouldn't block.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::{Async, AnAsync};
+    /// use std::net::{TcpStream, ToSocketAddrs};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let addr = "example.com:80".to_socket_addrs()?.next().unwrap();
+    /// let stream = Async::<TcpStream>::connect(addr).await?;
+    ///
+    /// // Wait until the stream is writable.
+    /// stream.writable().await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    async fn writable(&self) -> io::Result<()>;
+
+    /// Whether new fresh readers have been registered.
+    fn readers_registered(&self) -> bool;
+
+    /// Whether new fresh writers have been registered.
+    fn writers_registered(&self) -> bool;
+}
+
+#[async_trait]
+impl<T> AnAsync<T> for Async<T> where T: Send + Sync {
+    type Borrow<'a> where T: 'a = &'a T;
+    type BorrowMut<'a> where T: 'a = &'a mut T;
+
+    fn get_ref<'a>(&'a self) -> &'a T {
+        self.io.as_ref().unwrap()
+    }
+
+    fn get_mut<'a>(&'a mut self) -> &'a mut T {
+        self.io.as_mut().unwrap()
+    }
+
+    async fn readable(&self) -> io::Result<()> {
+        self.source.readable().await
+    }
+
+    async fn writable(&self) -> io::Result<()> {
+        self.source.writable().await
+    }
+
+    fn readers_registered(&self) -> bool {
+        self.source.readers_registered()
+    }
+
+    fn writers_registered(&self) -> bool {
+        self.source.writers_registered()
+    }
+}
+
+/// More complex functionality built on top of [`AnAsync`].
+#[async_trait]
+pub trait AnAsyncExt<T>: AnAsync<T> where T: Send + Sync {
+    /// Performs a read operation asynchronously.
+    ///
+    /// The I/O handle is registered in the reactor and put in non-blocking mode. This function
+    /// invokes the `op` closure in a loop until it succeeds or returns an error other than
+    /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
+    /// sends a notification that the I/O handle is readable.
+    ///
+    /// The closure receives a shared reference to the I/O handle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::{Async, AnAsyncExt};
+    /// use std::net::TcpListener;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+    ///
+    /// // Accept a new client asynchronously.
+    /// let (stream, addr) = listener.read_with(|l| l.accept()).await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    async fn read_with<'a, F, R>(
+        &'a self,
+        op: F,
+    ) -> io::Result<R> where F: FnMut(&T) -> io::Result<R> + Send, Self: Sync, T: 'a {
+        let mut op = op;
+        loop {
+            // If there are no blocked readers, attempt the read operation.
+            if !self.readers_registered() {
+                // Yield with some small probability - this improves fairness.
+                maybe_yield().await;
+
+                let io = self.get_ref();
+                match op(io.borrow()) {
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+                    res => return res,
+                }
+            }
+
+            // Wait until the I/O handle becomes readable.
+            optimistic(self.readable()).await?;
+        }
+    }
+
+    /// Performs a read operation asynchronously.
+    ///
+    /// The I/O handle is registered in the reactor and put in non-blocking mode. This function
+    /// invokes the `op` closure in a loop until it succeeds or returns an error other than
+    /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
+    /// sends a notification that the I/O handle is readable.
+    ///
+    /// The closure receives a mutable reference to the I/O handle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::{Async, AnAsyncExt};
+    /// use std::net::TcpListener;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+    ///
+    /// // Accept a new client asynchronously.
+    /// let (stream, addr) = listener.read_with_mut(|l| l.accept()).await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    async fn read_with_mut<'a, F, R>(
+        &'a mut self,
+        op: F,
+    ) -> io::Result<R> where F: for <'b> FnMut(&'b mut T) -> io::Result<R> + Send, Self: Sync, T: 'a {
+        let mut op = op;
+        loop {
+            // If there are no blocked readers, attempt the read operation.
+            if !self.readers_registered() {
+                // Yield with some small probability - this improves fairness.
+                maybe_yield().await;
+
+                {
+                let mut io = self.get_mut();
+                match op(io.borrow_mut()) {
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+                    res => return res,
+                }
+                }
+            }
+
+            // Wait until the I/O handle becomes readable.
+            optimistic(self.readable()).await?;
+        }
+    }
+
+    /// Performs a write operation asynchronously.
+    ///
+    /// The I/O handle is registered in the reactor and put in non-blocking mode. This function
+    /// invokes the `op` closure in a loop until it succeeds or returns an error other than
+    /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
+    /// sends a notification that the I/O handle is writable.
+    ///
+    /// The closure receives a shared reference to the I/O handle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::{Async, AnAsync, AnAsyncExt};
+    /// use std::net::UdpSocket;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
+    /// socket.get_ref().connect("127.0.0.1:9000")?;
+    ///
+    /// let msg = b"hello";
+    /// let len = socket.write_with(|s| s.send(msg)).await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    async fn write_with<'a, F, R>(
+        &'a self,
+        op: F,
+    ) -> io::Result<R> where F: FnMut(&T) -> io::Result<R> + Send, Self: Sync, T: 'a {
+        let mut op = op;
+        loop {
+            // If there are no blocked readers, attempt the write operation.
+            if !self.writers_registered() {
+                // Yield with some small probability - this improves fairness.
+                maybe_yield().await;
+
+                let io = self.get_ref();
+                match op(io.borrow()) {
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+                    res => return res,
+                }
+            }
+
+            // Wait until the I/O handle becomes writable.
+            optimistic(self.writable()).await?;
+        }
+    }
+
+    /// Performs a write operation asynchronously.
+    ///
+    /// The I/O handle is registered in the reactor and put in non-blocking mode. This function
+    /// invokes the `op` closure in a loop until it succeeds or returns an error other than
+    /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
+    /// sends a notification that the I/O handle is writable.
+    ///
+    /// The closure receives a mutable reference to the I/O handle.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::{Async, AnAsync, AnAsyncExt};
+    /// use std::net::UdpSocket;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let mut socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8000))?;
+    /// socket.get_ref().connect("127.0.0.1:9000")?;
+    ///
+    /// let msg = b"hello";
+    /// let len = socket.write_with_mut(|s| s.send(msg)).await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    async fn write_with_mut<'a, F, R>(
+        &'a mut self,
+        op: F,
+    ) -> io::Result<R> where F: FnMut(&mut T) -> io::Result<R> + Send, Self: Sync, T: 'a {
+        let mut op = op;
+        loop {
+            // If there are no blocked readers, attempt the write operation.
+            if !self.writers_registered() {
+                // Yield with some small probability - this improves fairness.
+                maybe_yield().await;
+
+                let mut io = self.get_mut();
+                match op(io.borrow_mut()) {
+                    Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+                    res => return res,
+                }
+            }
+
+            // Wait until the I/O handle becomes writable.
+            optimistic(self.writable()).await?;
+        }
+    }
+}
+
+#[async_trait]
+impl<T, A: AnAsync<T>> AnAsyncExt<T> for A where T: Send + Sync {}
+
+impl<T: Read + Send + Sync> AsyncRead for Async<T> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -714,6 +780,7 @@ impl<T: Read> AsyncRead for Async<T> {
 impl<T> AsyncRead for &Async<T>
 where
     for<'a> &'a T: Read,
+    T: Send + Sync,
 {
     fn poll_read(
         self: Pin<&mut Self>,
@@ -732,7 +799,7 @@ where
     }
 }
 
-impl<T: Write> AsyncWrite for Async<T> {
+impl<T: Write + Send + Sync> AsyncWrite for Async<T> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
@@ -761,6 +828,7 @@ impl<T: Write> AsyncWrite for Async<T> {
 impl<T> AsyncWrite for &Async<T>
 where
     for<'a> &'a T: Write,
+    T: Send + Sync
 {
     fn poll_write(
         self: Pin<&mut Self>,
@@ -795,7 +863,7 @@ impl Async<TcpListener> {
     /// # Examples
     ///
     /// ```
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::net::TcpListener;
     ///
     /// # futures_lite::future::block_on(async {
@@ -837,7 +905,7 @@ impl Async<TcpListener> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use futures_lite::stream::StreamExt;
     /// use std::net::TcpListener;
     ///
@@ -948,7 +1016,7 @@ impl Async<UdpSocket> {
     /// # Examples
     ///
     /// ```
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::net::UdpSocket;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1016,7 +1084,7 @@ impl Async<UdpSocket> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::net::UdpSocket;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1045,7 +1113,7 @@ impl Async<UdpSocket> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::net::UdpSocket;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1074,7 +1142,7 @@ impl Async<UdpSocket> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::net::UdpSocket;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1099,7 +1167,7 @@ impl Async<UdpSocket> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::net::UdpSocket;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1122,7 +1190,7 @@ impl Async<UnixListener> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::os::unix::net::UnixListener;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1164,7 +1232,7 @@ impl Async<UnixListener> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use futures_lite::stream::StreamExt;
     /// use std::os::unix::net::UnixListener;
     ///
@@ -1253,7 +1321,7 @@ impl Async<UnixDatagram> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::os::unix::net::UnixDatagram;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1337,7 +1405,7 @@ impl Async<UnixDatagram> {
     /// let len = socket.send_to(msg, addr).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub async fn send_to<P: AsRef<Path>>(&self, buf: &[u8], path: P) -> io::Result<usize> {
+    pub async fn send_to<P: AsRef<Path> + Sync>(&self, buf: &[u8], path: P) -> io::Result<usize> {
         self.write_with(|io| io.send_to(buf, &path)).await
     }
 
@@ -1351,7 +1419,7 @@ impl Async<UnixDatagram> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::os::unix::net::UnixDatagram;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1376,7 +1444,7 @@ impl Async<UnixDatagram> {
     /// # Examples
     ///
     /// ```no_run
-    /// use async_io::Async;
+    /// use async_io::{Async, AnAsync};
     /// use std::os::unix::net::UnixDatagram;
     ///
     /// # futures_lite::future::block_on(async {
@@ -1393,7 +1461,7 @@ impl Async<UnixDatagram> {
 }
 
 /// Polls a future once.
-fn poll_future<T>(cx: &mut Context<'_>, fut: impl Future<Output = T>) -> Poll<T> {
+pub fn poll_future<T>(cx: &mut Context<'_>, fut: impl Future<Output = T>) -> Poll<T> {
     pin!(fut);
     fut.poll(cx)
 }

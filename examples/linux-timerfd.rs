@@ -11,7 +11,7 @@ fn main() -> std::io::Result<()> {
     use std::os::unix::io::AsRawFd;
     use std::time::{Duration, Instant};
 
-    use async_io::Async;
+    use async_io::{Async, AnAsyncExt};
     use futures_lite::*;
     use timerfd::{SetTimeFlags, TimerFd, TimerState};
 
