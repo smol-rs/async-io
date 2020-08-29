@@ -1,3 +1,7 @@
+# Version 0.2.6
+
+- Add logging.
+
 # Version 0.2.5
 
 - On Linux, fail fast if `writable()` succeeds after connecting to `UnixStream`,
