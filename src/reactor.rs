@@ -111,6 +111,7 @@ impl Reactor {
                 };
 
                 if let Some(mut reactor_lock) = reactor_lock {
+                    log::debug!("main_loop: waiting on I/O");
                     let _ = reactor_lock.react(None);
                     last_tick = self.ticker.load(Ordering::SeqCst);
                     sleeps = 0;
@@ -125,7 +126,9 @@ impl Reactor {
                     .get(sleeps as usize)
                     .unwrap_or(&10_000);
 
+                log::trace!("main_loop: sleeping for {} us", delay_us);
                 if parker.park_timeout(Duration::from_micros(*delay_us)) {
+                    log::trace!("main_loop: notified");
                     // If woken before timeout, reset the last tick and sleep counter.
                     last_tick = self.ticker.load(Ordering::SeqCst);
                     sleeps = 0;
@@ -138,6 +141,8 @@ impl Reactor {
 
     /// Blocks the current thread on a future, processing I/O events when idle.
     pub(crate) fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
+        log::debug!("block_on()");
+
         // Increment `block_on_count` so that the "async-io" thread becomes less aggressive.
         self.block_on_count.fetch_add(1, Ordering::SeqCst);
 
@@ -175,11 +180,14 @@ impl Reactor {
         loop {
             // Poll the future.
             if let Poll::Ready(t) = future.as_mut().poll(cx) {
+                log::trace!("block_on: completed");
                 return t;
             }
 
             // Check if a notification was received.
             if p.park_timeout(Duration::from_secs(0)) {
+                log::trace!("block_on: notified");
+
                 // Try grabbing a lock on the reactor to process I/O events.
                 if let Some(mut reactor_lock) = Reactor::get().try_lock() {
                     // First let wakers know this parker is processing I/O events.
@@ -211,19 +219,23 @@ impl Reactor {
                     // Check if a notification has been received before `io_blocked` was updated
                     // because in that case the reactor won't receive a wakeup.
                     if p.park_timeout(Duration::from_secs(0)) {
+                        log::trace!("block_on: notified");
                         break;
                     }
 
                     // Wait for I/O events.
+                    log::trace!("block_on: waiting on I/O");
                     let _ = reactor_lock.react(None);
 
                     // Check if a notification has been received.
                     if p.park_timeout(Duration::from_secs(0)) {
+                        log::debug!("block_on: notified");
                         break;
                     }
 
                     // Check if this thread been handling I/O events for a long time.
                     if start.elapsed() > Duration::from_micros(500) {
+                        log::trace!("block_on: stops hogging the reactor");
                         // This thread is clearly processing I/O events for some other threads
                         // because it didn't get a notification yet. It's best to stop hogging the
                         // reactor and give other threads a chance to process I/O events for
@@ -240,6 +252,7 @@ impl Reactor {
                     }
                 }
             } else {
+                log::trace!("block_on: sleep until notification");
                 // Wait for an actual notification.
                 p.park();
             }
@@ -365,6 +378,7 @@ impl Reactor {
         drop(timers);
 
         // Add wakers to the list.
+        log::debug!("process_timers: {} ready wakers", ready.len());
         for (_, waker) in ready {
             wakers.push(waker);
         }
@@ -490,6 +504,7 @@ impl ReactorLock<'_> {
         drop(self);
 
         // Wake up ready tasks.
+        log::debug!("react: {} ready wakers", wakers.len());
         for waker in wakers {
             // Don't let a panicking waker blow everything up.
             let _ = panic::catch_unwind(|| waker.wake());
@@ -560,6 +575,7 @@ impl Source {
                 // If `tick_readable` has changed to a value other than the old reactor tick, that
                 // means a newer reactor tick has delivered a readability event.
                 if w.tick_readable != a && w.tick_readable != b {
+                    log::trace!("readable: fd={}", self.raw);
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -616,6 +632,7 @@ impl Source {
                 // If `tick_writable` has changed to a value other than the old reactor tick, that
                 // means a newer reactor tick has delivered a writability event.
                 if w.tick_writable != a && w.tick_writable != b {
+                    log::trace!("writable: fd={}", self.raw);
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -676,6 +693,7 @@ impl Source {
 /// aforementioned threshold, we have bigger problems to worry about.
 fn limit_waker_list(wakers: &mut Vec<Waker>) -> bool {
     if wakers.len() > 50 {
+        log::debug!("limit_waker_list: clearing the list");
         for waker in wakers.drain(..) {
             // Don't let a panicking waker blow everything up.
             let _ = panic::catch_unwind(|| waker.wake());
