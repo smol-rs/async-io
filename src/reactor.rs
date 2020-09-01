@@ -3,6 +3,7 @@
 
 use std::cell::Cell;
 use std::collections::BTreeMap;
+use std::fmt::Debug;
 use std::io;
 use std::marker::PhantomData;
 use std::mem;
@@ -592,7 +593,7 @@ impl<R, T> GSource<R, T> {
     }
 }
 
-impl<R, T: ?Sized> GSource<R, T> where R: SourceReactor<T> {
+impl<R, T: ?Sized + Debug> GSource<R, T> where R: SourceReactor<T> {
     /// Waits until the I/O source is readable.
     pub async fn readable(&self) -> io::Result<()> {
         let mut ticks = None;
@@ -605,7 +606,7 @@ impl<R, T: ?Sized> GSource<R, T> where R: SourceReactor<T> {
                 // If `tick_readable` has changed to a value other than the old reactor tick, that
                 // means a newer reactor tick has delivered a readability event.
                 if w.tick_readable != a && w.tick_readable != b {
-                    log::trace!("readable: fd={}", self.raw);
+                    log::trace!("readable: fd={:?}", &self.raw);
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -661,7 +662,7 @@ impl<R, T: ?Sized> GSource<R, T> where R: SourceReactor<T> {
                 // If `tick_writable` has changed to a value other than the old reactor tick, that
                 // means a newer reactor tick has delivered a writability event.
                 if w.tick_writable != a && w.tick_writable != b {
-                    log::trace!("writable: fd={}", self.raw);
+                    log::trace!("writable: fd={:?}", &self.raw);
                     return Poll::Ready(Ok(()));
                 }
             }
