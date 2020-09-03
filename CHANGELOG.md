@@ -1,3 +1,7 @@
+# Version 0.2.7
+
+- Replace `log::debug!` with `log::trace!`.
+-
 # Version 0.2.6
 
 - Add logging.
