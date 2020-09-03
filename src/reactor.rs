@@ -111,7 +111,7 @@ impl Reactor {
                 };
 
                 if let Some(mut reactor_lock) = reactor_lock {
-                    log::debug!("main_loop: waiting on I/O");
+                    log::trace!("main_loop: waiting on I/O");
                     let _ = reactor_lock.react(None);
                     last_tick = self.ticker.load(Ordering::SeqCst);
                     sleeps = 0;
@@ -141,7 +141,7 @@ impl Reactor {
 
     /// Blocks the current thread on a future, processing I/O events when idle.
     pub(crate) fn block_on<T>(&self, future: impl Future<Output = T>) -> T {
-        log::debug!("block_on()");
+        log::trace!("block_on()");
 
         // Increment `block_on_count` so that the "async-io" thread becomes less aggressive.
         self.block_on_count.fetch_add(1, Ordering::SeqCst);
@@ -229,7 +229,7 @@ impl Reactor {
 
                     // Check if a notification has been received.
                     if p.park_timeout(Duration::from_secs(0)) {
-                        log::debug!("block_on: notified");
+                        log::trace!("block_on: notified");
                         break;
                     }
 
@@ -378,7 +378,7 @@ impl Reactor {
         drop(timers);
 
         // Add wakers to the list.
-        log::debug!("process_timers: {} ready wakers", ready.len());
+        log::trace!("process_timers: {} ready wakers", ready.len());
         for (_, waker) in ready {
             wakers.push(waker);
         }
@@ -504,7 +504,7 @@ impl ReactorLock<'_> {
         drop(self);
 
         // Wake up ready tasks.
-        log::debug!("react: {} ready wakers", wakers.len());
+        log::trace!("react: {} ready wakers", wakers.len());
         for waker in wakers {
             // Don't let a panicking waker blow everything up.
             let _ = panic::catch_unwind(|| waker.wake());
@@ -693,7 +693,7 @@ impl Source {
 /// aforementioned threshold, we have bigger problems to worry about.
 fn limit_waker_list(wakers: &mut Vec<Waker>) -> bool {
     if wakers.len() > 50 {
-        log::debug!("limit_waker_list: clearing the list");
+        log::trace!("limit_waker_list: clearing the list");
         for waker in wakers.drain(..) {
             // Don't let a panicking waker blow everything up.
             let _ = panic::catch_unwind(|| waker.wake());
