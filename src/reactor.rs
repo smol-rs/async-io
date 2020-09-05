@@ -500,9 +500,6 @@ impl ReactorLock<'_> {
             Err(err) => Err(err),
         };
 
-        // Drop the lock before waking.
-        drop(self);
-
         // Wake up ready tasks.
         log::trace!("react: {} ready wakers", wakers.len());
         for waker in wakers {
