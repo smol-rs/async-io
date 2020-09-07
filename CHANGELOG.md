@@ -1,3 +1,7 @@
+# Version 1.0.1
+
+- Update dependencies.
+
 # Version 1.0.0
 
 - Stabilize.
