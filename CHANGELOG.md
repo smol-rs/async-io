@@ -1,3 +1,7 @@
+# Version 1.0.0
+
+- Stabilize.
+
 # Version 0.6.1
 
 - Add probabilistic yielding to improve fairness.
