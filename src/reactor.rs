@@ -613,6 +613,7 @@ impl Source {
         .await
     }
 
+    /// Returns `true` if there is at least one registered reader.
     pub(crate) fn readers_registered(&self) -> bool {
         self.wakers_registered.load(Ordering::SeqCst) & READERS_REGISTERED != 0
     }
@@ -670,6 +671,7 @@ impl Source {
         .await
     }
 
+    /// Returns `true` if there is at least one registered writer.
     pub(crate) fn writers_registered(&self) -> bool {
         self.wakers_registered.load(Ordering::SeqCst) & WRITERS_REGISTERED != 0
     }
