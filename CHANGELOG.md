@@ -1,3 +1,7 @@
+# Version 1.0.0
+
+- Stabilize.
+
 # Version 0.2.7
 
 - Replace `log::debug!` with `log::trace!`.

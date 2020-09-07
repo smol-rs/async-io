@@ -111,13 +111,26 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
 /// use async_io::Timer;
 /// use std::time::Duration;
 ///
-/// async fn sleep(dur: Duration) {
-///     Timer::after(dur).await;
-/// }
+/// # futures_lite::future::block_on(async {
+/// Timer::after(Duration::from_secs(1)).await;
+/// # });
+/// ```
+///
+/// Timeout after 1 second:
+///
+/// ```
+/// use async_io::Timer;
+/// use futures_lite::FutureExt;
+/// use std::time::Duration;
 ///
 /// # futures_lite::future::block_on(async {
-/// sleep(Duration::from_secs(1)).await;
-/// # });
+/// let addrs = async_net::resolve("google.com:80")
+///     .or(async {
+///         Timer::after(Duration::from_secs(10)).await;
+///         Err(std::io::ErrorKind::TimedOut.into())
+///     })
+///     .await?;
+/// # std::io::Result::Ok(()) });
 /// ```
 #[derive(Debug)]
 pub struct Timer {

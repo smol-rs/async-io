@@ -1,6 +1,6 @@
 [package]
 name = "async-io"
-version = "0.2.7"
+version = "1.0.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 description = "Async I/O and timers"
@@ -35,6 +35,7 @@ async-channel = "1.4.0"
 blocking = "0.6.0"
 signal-hook = "0.1.16"
 tempfile = "3.1.0"
+async-net = "1.0.0"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 inotify = { version = "0.8.3", default-features = false }
