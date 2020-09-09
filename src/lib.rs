@@ -334,8 +334,10 @@ pub struct Async<T> {
     source: Arc<Source>,
 
     /// The inner I/O handle.
-    io: Option<Box<T>>,
+    io: Option<T>,
 }
+
+impl<T> Unpin for Async<T> {}
 
 #[cfg(unix)]
 impl<T: AsRawFd> Async<T> {
@@ -366,7 +368,7 @@ impl<T: AsRawFd> Async<T> {
     pub fn new(io: T) -> io::Result<Async<T>> {
         Ok(Async {
             source: Reactor::get().insert_io(io.as_raw_fd())?,
-            io: Some(Box::new(io)),
+            io: Some(io),
         })
     }
 }
@@ -407,7 +409,7 @@ impl<T: AsRawSocket> Async<T> {
     pub fn new(io: T) -> io::Result<Async<T>> {
         Ok(Async {
             source: Reactor::get().insert_io(io.as_raw_socket())?,
-            io: Some(Box::new(io)),
+            io: Some(io),
         })
     }
 }
@@ -473,7 +475,7 @@ impl<T> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn into_inner(mut self) -> io::Result<T> {
-        let io = *self.io.take().unwrap();
+        let io = self.io.take().unwrap();
         Reactor::get().remove_io(&self.source)?;
         Ok(io)
     }
