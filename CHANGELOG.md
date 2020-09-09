@@ -1,3 +1,8 @@
+# Version 1.0.2
+
+- Don't box `T` in `Async<T>`.
+- `Async::incoming()` doesn't return `Unpin` streams anymore.
+
 # Version 1.0.1
 
 - Update dependencies.
