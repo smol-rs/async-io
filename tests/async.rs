@@ -70,7 +70,7 @@ fn tcp_peek_read() -> io::Result<()> {
         stream.write_all(LOREM_IPSUM).await?;
 
         let mut buf = [0; 1024];
-        let mut incoming = listener.incoming();
+        let mut incoming = Box::pin(listener.incoming());
         let mut stream = incoming.next().await.unwrap()?;
 
         let n = stream.peek(&mut buf).await?;
@@ -168,7 +168,7 @@ fn udp_connect() -> io::Result<()> {
         stream.write_all(LOREM_IPSUM).await?;
 
         let mut buf = [0; 1024];
-        let mut incoming = listener.incoming();
+        let mut incoming = Box::pin(listener.incoming());
         let mut stream = incoming.next().await.unwrap()?;
 
         let n = stream.read(&mut buf).await?;
