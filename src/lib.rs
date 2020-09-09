@@ -853,12 +853,13 @@ impl Async<TcpListener> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use futures_lite::stream::StreamExt;
+    /// use futures_lite::{pin, stream::StreamExt};
     /// use std::net::TcpListener;
     ///
     /// # futures_lite::future::block_on(async {
     /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 8000))?;
-    /// let mut incoming = listener.incoming();
+    /// let incoming = listener.incoming();
+    /// pin!(incoming);
     ///
     /// while let Some(stream) = incoming.next().await {
     ///     let stream = stream?;
@@ -866,11 +867,11 @@ impl Async<TcpListener> {
     /// }
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub fn incoming(&self) -> impl Stream<Item = io::Result<Async<TcpStream>>> + Send + Unpin + '_ {
-        Box::pin(stream::unfold(self, |listener| async move {
+    pub fn incoming(&self) -> impl Stream<Item = io::Result<Async<TcpStream>>> + Send + '_ {
+        stream::unfold(self, |listener| async move {
             let res = listener.accept().await.map(|(stream, _)| stream);
             Some((res, listener))
-        }))
+        })
     }
 }
 
@@ -1180,12 +1181,13 @@ impl Async<UnixListener> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use futures_lite::stream::StreamExt;
+    /// use futures_lite::{pin, stream::StreamExt};
     /// use std::os::unix::net::UnixListener;
     ///
     /// # futures_lite::future::block_on(async {
     /// let listener = Async::<UnixListener>::bind("/tmp/socket")?;
-    /// let mut incoming = listener.incoming();
+    /// let incoming = listener.incoming();
+    /// pin!(incoming);
     ///
     /// while let Some(stream) = incoming.next().await {
     ///     let stream = stream?;
@@ -1195,11 +1197,11 @@ impl Async<UnixListener> {
     /// ```
     pub fn incoming(
         &self,
-    ) -> impl Stream<Item = io::Result<Async<UnixStream>>> + Send + Unpin + '_ {
-        Box::pin(stream::unfold(self, |listener| async move {
+    ) -> impl Stream<Item = io::Result<Async<UnixStream>>> + Send + '_ {
+        stream::unfold(self, |listener| async move {
             let res = listener.accept().await.map(|(stream, _)| stream);
             Some((res, listener))
-        }))
+        })
     }
 }
 
