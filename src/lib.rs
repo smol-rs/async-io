@@ -184,7 +184,7 @@ impl Executor {
         // Wrap the future into one that sends the output into a channel.
         let (s, r) = bounded(1);
         let future = async move {
-            let _ = s.send(future.await).await;
+            s.send(future.await).await.ok();
         };
 
         // Create a task and schedule it for execution.
@@ -212,7 +212,7 @@ impl Executor {
                 self.grow_pool(inner);
 
                 // Run the task.
-                let _ = panic::catch_unwind(|| runnable.run());
+                panic::catch_unwind(|| runnable.run()).ok();
 
                 // Re-lock the inner state and continue.
                 inner = self.inner.lock().unwrap();
@@ -403,7 +403,7 @@ impl<T> Unblock<T> {
     /// ```
     pub async fn get_mut(&mut self) -> &mut T {
         // Wait for the running task to stop and ignore I/O errors if there are any.
-        let _ = future::poll_fn(|cx| self.poll_stop(cx)).await;
+        future::poll_fn(|cx| self.poll_stop(cx)).await.ok();
 
         // Assume idle state and get a reference to the inner value.
         match &mut self.state {
@@ -440,7 +440,7 @@ impl<T> Unblock<T> {
         T: Send + 'static,
     {
         // Wait for the running task to stop and ignore I/O errors if there are any.
-        let _ = future::poll_fn(|cx| self.poll_stop(cx)).await;
+        future::poll_fn(|cx| self.poll_stop(cx)).await.ok();
 
         // Assume idle state and take out the inner value.
         let mut t = match &mut self.state {
@@ -456,7 +456,7 @@ impl<T> Unblock<T> {
 
         let (sender, receiver) = bounded(1);
         let task = Executor::spawn(async move {
-            let _ = sender.try_send(op(&mut t));
+            sender.try_send(op(&mut t)).ok();
             t
         });
         self.state = State::WithMut(task);
@@ -492,7 +492,7 @@ impl<T> Unblock<T> {
         let mut this = self;
 
         // Wait for the running task to stop and ignore I/O errors if there are any.
-        let _ = future::poll_fn(|cx| this.poll_stop(cx)).await;
+        future::poll_fn(|cx| this.poll_stop(cx)).await.ok();
 
         // Assume idle state and extract the inner value.
         match &mut this.state {
@@ -646,7 +646,7 @@ where
                 | State::Writing(..)
                 | State::Seeking(..) => {
                     // Wait for the running task to stop.
-                    let _ = ready!(self.poll_stop(cx));
+                    ready!(self.poll_stop(cx)).ok();
                 }
 
                 // If idle, start a streaming task.
@@ -803,7 +803,7 @@ impl<T: Write + Send + 'static> AsyncWrite for Unblock<T> {
                                 Ok(0) => return (io.flush(), io),
                                 Ok(_) => {}
                                 Err(err) => {
-                                    let _ = io.flush();
+                                    io.flush().ok();
                                     return (Err(err), io);
                                 }
                             }
