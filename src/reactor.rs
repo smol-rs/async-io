@@ -112,7 +112,7 @@ impl Reactor {
 
                 if let Some(mut reactor_lock) = reactor_lock {
                     log::trace!("main_loop: waiting on I/O");
-                    let _ = reactor_lock.react(None);
+                    reactor_lock.react(None).ok();
                     last_tick = self.ticker.load(Ordering::SeqCst);
                     sleeps = 0;
                 }
@@ -197,7 +197,7 @@ impl Reactor {
                     });
 
                     // Process available I/O events.
-                    let _ = reactor_lock.react(Some(Duration::from_secs(0)));
+                    reactor_lock.react(Some(Duration::from_secs(0))).ok();
                 }
                 continue;
             }
@@ -225,7 +225,7 @@ impl Reactor {
 
                     // Wait for I/O events.
                     log::trace!("block_on: waiting on I/O");
-                    let _ = reactor_lock.react(None);
+                    reactor_lock.react(None).ok();
 
                     // Check if a notification has been received.
                     if p.park_timeout(Duration::from_secs(0)) {
@@ -504,7 +504,7 @@ impl ReactorLock<'_> {
         log::trace!("react: {} ready wakers", wakers.len());
         for waker in wakers {
             // Don't let a panicking waker blow everything up.
-            let _ = panic::catch_unwind(|| waker.wake());
+            panic::catch_unwind(|| waker.wake()).ok();
         }
 
         res
@@ -695,7 +695,7 @@ fn limit_waker_list(wakers: &mut Vec<Waker>) -> bool {
         log::trace!("limit_waker_list: clearing the list");
         for waker in wakers.drain(..) {
             // Don't let a panicking waker blow everything up.
-            let _ = panic::catch_unwind(|| waker.wake());
+            panic::catch_unwind(|| waker.wake()).ok();
         }
         true
     } else {

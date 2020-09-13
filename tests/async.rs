@@ -26,7 +26,7 @@ fn spawn<T: Send + 'static>(
 
     thread::spawn(move || {
         future::block_on(async {
-            let _ = s.send(f.await).await;
+            s.send(f.await).await.ok();
         })
     });
 

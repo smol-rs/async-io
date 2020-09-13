@@ -14,7 +14,7 @@ fn spawn<T: Send + 'static>(
 
     thread::spawn(move || {
         future::block_on(async {
-            let _ = s.send(f.await).await;
+            s.send(f.await).await.ok();
         })
     });
 
@@ -46,7 +46,7 @@ fn poll_across_tasks() {
             .or(async {})
             .await;
 
-            let _ = sender.send(timer).await;
+            sender.send(timer).await.ok();
         });
 
         let task2 = spawn(async move {

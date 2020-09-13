@@ -700,7 +700,7 @@ impl<T> Drop for Async<T> {
     fn drop(&mut self) {
         if self.io.is_some() {
             // Deregister and ignore errors because destructors should not panic.
-            let _ = Reactor::get().remove_io(&self.source);
+            Reactor::get().remove_io(&self.source).ok();
 
             // Drop the I/O handle to close it.
             self.io.take();
@@ -1195,9 +1195,7 @@ impl Async<UnixListener> {
     /// }
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub fn incoming(
-        &self,
-    ) -> impl Stream<Item = io::Result<Async<UnixStream>>> + Send + '_ {
+    pub fn incoming(&self) -> impl Stream<Item = io::Result<Async<UnixStream>>> + Send + '_ {
         stream::unfold(self, |listener| async move {
             let res = listener.accept().await.map(|(stream, _)| stream);
             Some((res, listener))
