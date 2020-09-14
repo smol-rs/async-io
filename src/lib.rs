@@ -55,6 +55,7 @@
 
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
+use std::convert::TryFrom;
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::mem::ManuallyDrop;
@@ -875,6 +876,14 @@ impl Async<TcpListener> {
     }
 }
 
+impl TryFrom<std::net::TcpListener> for Async<std::net::TcpListener> {
+    type Error = io::Error;
+
+    fn try_from(listener: std::net::TcpListener) -> io::Result<Self> {
+        Async::new(listener)
+    }
+}
+
 impl Async<TcpStream> {
     /// Creates a TCP connection to the specified address.
     ///
@@ -953,6 +962,14 @@ impl Async<TcpStream> {
     /// ```
     pub async fn peek(&self, buf: &mut [u8]) -> io::Result<usize> {
         self.read_with(|io| io.peek(buf)).await
+    }
+}
+
+impl TryFrom<std::net::TcpStream> for Async<std::net::TcpStream> {
+    type Error = io::Error;
+
+    fn try_from(stream: std::net::TcpStream) -> io::Result<Self> {
+        Async::new(stream)
     }
 }
 
@@ -1131,6 +1148,14 @@ impl Async<UdpSocket> {
     }
 }
 
+impl TryFrom<std::net::UdpSocket> for Async<std::net::UdpSocket> {
+    type Error = io::Error;
+
+    fn try_from(socket: std::net::UdpSocket) -> io::Result<Self> {
+        Async::new(socket)
+    }
+}
+
 #[cfg(unix)]
 impl Async<UnixListener> {
     /// Creates a UDS listener bound to the specified path.
@@ -1204,6 +1229,15 @@ impl Async<UnixListener> {
 }
 
 #[cfg(unix)]
+impl TryFrom<std::os::unix::net::UnixListener> for Async<std::os::unix::net::UnixListener> {
+    type Error = io::Error;
+
+    fn try_from(listener: std::os::unix::net::UnixListener) -> io::Result<Self> {
+        Async::new(listener)
+    }
+}
+
+#[cfg(unix)]
 impl Async<UnixStream> {
     /// Creates a UDS stream connected to the specified path.
     ///
@@ -1258,6 +1292,15 @@ impl Async<UnixStream> {
     pub fn pair() -> io::Result<(Async<UnixStream>, Async<UnixStream>)> {
         let (stream1, stream2) = UnixStream::pair()?;
         Ok((Async::new(stream1)?, Async::new(stream2)?))
+    }
+}
+
+#[cfg(unix)]
+impl TryFrom<std::os::unix::net::UnixStream> for Async<std::os::unix::net::UnixStream> {
+    type Error = io::Error;
+
+    fn try_from(stream: std::os::unix::net::UnixStream) -> io::Result<Self> {
+        Async::new(stream)
     }
 }
 
@@ -1404,6 +1447,15 @@ impl Async<UnixDatagram> {
     /// ```
     pub async fn send(&self, buf: &[u8]) -> io::Result<usize> {
         self.write_with(|io| io.send(buf)).await
+    }
+}
+
+#[cfg(unix)]
+impl TryFrom<std::os::unix::net::UnixDatagram> for Async<std::os::unix::net::UnixDatagram> {
+    type Error = io::Error;
+
+    fn try_from(socket: std::os::unix::net::UnixDatagram) -> io::Result<Self> {
+        Async::new(socket)
     }
 }
 
