@@ -57,3 +57,35 @@ jobs:
         uses: actions-rs/cargo@v1
         with:
           command: test
+
+  # Copied from: https://github.com/rust-lang/stacker/pull/19/files
+  windows_gnu:
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        rust_toolchain: [nightly]
+        rust_target:
+          - x86_64-pc-windows-gnu
+    steps:
+      - uses: actions/checkout@v1
+      - name: Install Rust nightly
+        uses: actions-rs/toolchain@v1
+        with:
+            toolchain: ${{ matrix.rust_toolchain }}
+            target: ${{ matrix.rust_target }}
+            default: true
+      # https://github.com/rust-lang/rust/issues/49078
+      - name: Fix windows-gnu rust-mingw
+        run : |
+          for i in crt2.o dllcrt2.o libmingwex.a libmsvcrt.a ; do
+            cp -f "/C/ProgramData/Chocolatey/lib/mingw/tools/install/mingw64/x86_64-w64-mingw32/lib/$i" "`rustc --print sysroot`/lib/rustlib/x86_64-pc-windows-gnu/lib"
+          done
+        shell: bash
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --target ${{ matrix.rust_target }} --all --benches --bins --examples --tests --all-features
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --target ${{ matrix.rust_target }}
