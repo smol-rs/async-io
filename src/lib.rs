@@ -708,24 +708,6 @@ impl<T> Drop for Async<T> {
     }
 }
 
-#[cfg(windows)]
-impl<T: AsRawFd> TryFrom<T> for Async<T> {
-    type Error = io::Error;
-
-    fn try_from(io: T) -> io::Result<Async<T>> {
-        Async::new(io)
-    }
-}
-
-#[cfg(windows)]
-impl<T: AsRawSocket> TryFrom<T> for Async<T> {
-    type Error = io::Error;
-
-    fn try_from(io: T) -> io::Result<Async<T>> {
-        Async::new(io)
-    }
-}
-
 impl<T: Read> AsyncRead for Async<T> {
     fn poll_read(
         mut self: Pin<&mut Self>,
