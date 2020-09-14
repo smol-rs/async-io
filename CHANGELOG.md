@@ -1,3 +1,7 @@
+# Version 1.1.0
+
+- Add `TryFrom` conversion impls for `Async`.
+
 # Version 1.0.2
 
 - Don't box `T` in `Async<T>`.
