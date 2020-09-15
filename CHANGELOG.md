@@ -1,3 +1,7 @@
+# Version 1.1.1
+
+- Remove `socket2` dependency.
+
 # Version 1.1.0
 
 - Add `TryFrom` conversion impls for `Async`.
