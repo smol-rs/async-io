@@ -58,7 +58,8 @@
 use std::convert::TryFrom;
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::mem::ManuallyDrop;
+use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
@@ -66,13 +67,13 @@ use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::{
-    os::unix::io::{AsRawFd, RawFd},
+    os::unix::io::{AsRawFd, FromRawFd, RawFd},
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
 
 #[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, RawSocket};
+use std::os::windows::io::{AsRawSocket, FromRawSocket, RawSocket};
 
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
@@ -81,7 +82,6 @@ use futures_lite::{future, pin};
 use crate::reactor::{Reactor, Source};
 
 mod reactor;
-mod socket;
 
 /// Blocks the current thread on a future, processing I/O events when idle.
 ///
@@ -771,7 +771,7 @@ impl<T: Write> AsyncWrite for Async<T> {
     }
 
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(socket::shutdown_write(self.source.raw))
+        Poll::Ready(shutdown_write(self.source.raw))
     }
 }
 
@@ -800,7 +800,7 @@ where
     }
 
     fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(socket::shutdown_write(self.source.raw))
+        Poll::Ready(shutdown_write(self.source.raw))
     }
 }
 
@@ -901,7 +901,7 @@ impl Async<TcpStream> {
     /// ```
     pub async fn connect<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<TcpStream>> {
         // Begin async connect.
-        let stream = Async::new(socket::tcp_connect(addr.into())?)?;
+        let stream = Async::new(nb_connect::tcp(addr)?)?;
 
         // The stream becomes writable when connected.
         stream.writable().await?;
@@ -1229,7 +1229,7 @@ impl Async<UnixStream> {
     /// ```
     pub async fn connect<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixStream>> {
         // Begin async connect.
-        let stream = Async::new(socket::unix_connect(path)?)?;
+        let stream = Async::new(nb_connect::unix(path)?)?;
 
         // The stream becomes writable when connected.
         stream.writable().await?;
@@ -1448,5 +1448,27 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
 async fn maybe_yield() {
     if fastrand::usize(..100) == 0 {
         future::yield_now().await;
+    }
+}
+
+/// Shuts down the write side of a socket.
+///
+/// If this source is not a socket, the `shutdown()` syscall error is ignored.
+pub fn shutdown_write(#[cfg(unix)] raw: RawFd, #[cfg(windows)] raw: RawSocket) -> io::Result<()> {
+    // This may not be a TCP stream, but that's okay. All we do is attempt a `shutdown()` on the
+    // raw descriptor and ignore errors.
+    let stream = unsafe {
+        ManuallyDrop::new(
+            #[cfg(unix)]
+            TcpStream::from_raw_fd(raw),
+            #[cfg(windows)]
+            TcpStream::from_raw_socket(raw),
+        )
+    };
+
+    // If the socket is a TCP stream, the only actual error can be ENOTCONN.
+    match stream.shutdown(Shutdown::Write) {
+        Err(err) if err.kind() == io::ErrorKind::NotConnected => Err(err),
+        _ => Ok(()),
     }
 }
