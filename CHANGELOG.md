@@ -1,3 +1,8 @@
+# Version 1.1.2
+
+- Add `nb-connect` dependency.
+- Remove `wepoll-sys-stjepang` dependency.
+
 # Version 1.1.1
 
 - Remove `socket2` dependency.
