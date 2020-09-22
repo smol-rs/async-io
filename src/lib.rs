@@ -58,8 +58,7 @@
 use std::convert::TryFrom;
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
-use std::mem::ManuallyDrop;
-use std::net::{Shutdown, SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
@@ -67,7 +66,7 @@ use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::{
-    os::unix::io::{AsRawFd, FromRawFd, RawFd},
+    os::unix::io::{AsRawFd, RawFd},
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
@@ -287,14 +286,54 @@ impl Future for Timer {
 /// This type puts an I/O handle into non-blocking mode, registers it in
 /// [epoll]/[kqueue]/[event ports]/[wepoll], and then provides an async interface for it.
 ///
-/// **NOTE:** Do not use this type with [`File`][`std::fs::File`], [`Stdin`][`std::io::Stdin`],
-/// [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`] because all of the supported
-/// operating systems have issues with them when put in non-blocking mode.
-///
 /// [epoll]: https://en.wikipedia.org/wiki/Epoll
 /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 /// [event ports]: https://illumos.org/man/port_create
 /// [wepoll]: https://github.com/piscisaureus/wepoll
+///
+/// # Caveats
+///
+/// [`Async`] is a low-level primitive, and as such it comes with some caveats.
+///
+/// For higher-level primitives built on top of [`Async`], look into [`async-net`] or
+/// [`async-process`] (on Unix).
+///
+/// [`async-net`]: https://github.com/stjepang/async-net
+/// [`async-process`]: https://github.com/stjepang/async-process
+///
+/// ### Supported types
+///
+/// [`Async`] supports all networking types, as well as some OS-specific file descriptors like
+/// [timerfd] and [inotify].
+///
+/// However, do not use [`Async`] with types like [`File`][`std::fs::File`],
+/// [`Stdin`][`std::io::Stdin`], [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`]
+/// because all operating systems have issues with them when put in non-blocking mode.
+///
+/// [timerfd]: https://github.com/stjepang/async-io/blob/master/examples/linux-timerfd.rs
+/// [inotify]: https://github.com/stjepang/async-io/blob/master/examples/linux-inotify.rs
+///
+/// ### Concurrent I/O
+///
+/// Note that [`&Async<T>`][`Async`] implements [`AsyncRead`] and [`AsyncWrite`] if `&T`
+/// implements those traits, which means tasks can concurrently read and write using shared
+/// references.
+///
+/// But there is a catch: only one task can read a time, and only one task can write at a time. It
+/// is okay to have two tasks where one is reading and the other is writing at the same time, but
+/// it is not okay to have two tasks reading at the same time or writing at the same time. If you
+/// try to do that, conflicting tasks will just keep waking each other in turn, thus wasting CPU
+/// time.
+///
+/// This caveat only applies to [`AsyncRead`] and [`AsyncWrite`]. Any number of tasks can be
+/// concurrently calling other methods like [`readable()`][`Async::readable()`] or
+/// [`read_with()`][`Async::read_with()`].
+///
+/// ### Closing
+///
+/// Closing the write side of [`Async`] with [`close()`][`futures_lite::AsyncWriteExt::close()`]
+/// simply flushes. If you want to shutdown a TCP or Unix socket, use
+/// [`Shutdown`][`std::net::Shutdown`].
 ///
 /// # Examples
 ///
@@ -770,8 +809,8 @@ impl<T: Write> AsyncWrite for Async<T> {
         poll_future(cx, self.write_with_mut(|io| io.flush()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(shutdown_write(self.source.raw))
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.poll_flush(cx)
     }
 }
 
@@ -799,8 +838,8 @@ where
         poll_future(cx, self.write_with(|io| (&*io).flush()))
     }
 
-    fn poll_close(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
-        Poll::Ready(shutdown_write(self.source.raw))
+    fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.poll_flush(cx)
     }
 }
 
@@ -1448,27 +1487,5 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
 async fn maybe_yield() {
     if fastrand::usize(..100) == 0 {
         future::yield_now().await;
-    }
-}
-
-/// Shuts down the write side of a socket.
-///
-/// If this source is not a socket, the `shutdown()` syscall error is ignored.
-pub fn shutdown_write(#[cfg(unix)] raw: RawFd, #[cfg(windows)] raw: RawSocket) -> io::Result<()> {
-    // This may not be a TCP stream, but that's okay. All we do is attempt a `shutdown()` on the
-    // raw descriptor and ignore errors.
-    let stream = unsafe {
-        ManuallyDrop::new(
-            #[cfg(unix)]
-            TcpStream::from_raw_fd(raw),
-            #[cfg(windows)]
-            TcpStream::from_raw_socket(raw),
-        )
-    };
-
-    // If the socket is a TCP stream, the only actual error can be ENOTCONN.
-    match stream.shutdown(Shutdown::Write) {
-        Err(err) if err.kind() == io::ErrorKind::NotConnected => Err(err),
-        _ => Ok(()),
     }
 }
