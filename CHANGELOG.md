@@ -1,3 +1,7 @@
+# Version 1.1.3
+
+- Improve docs.
+
 # Version 1.1.2
 
 - Add `nb-connect` dependency.
