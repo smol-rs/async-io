@@ -314,22 +314,43 @@ where
 /// This type implements traits [`Stream`], [`AsyncRead`], [`AsyncWrite`], or [`AsyncSeek`] if the
 /// inner type implements [`Iterator`], [`Read`], [`Write`], or [`Seek`], respectively.
 ///
-/// # Notes
+/// # Caveats
+///
+/// [`Unblock`] is a low-level primitive, and as such it comes with some caveats.
+///
+/// For higher-level primitives built on top of [`Unblock`], look into [`async-fs`] or
+/// [`async-process`] (on Windows).
+///
+/// [`async-fs`]: https://github.com/stjepang/async-fs
+/// [`async-process`]: https://github.com/stjepang/async-process
+///
+/// [`Unblock`] communicates with I/O operations on the thread pool through a pipe. That means an
+/// async read/write operation simply receives/sends some bytes from/into the pipe. When in reading
+/// mode, the thread pool reads bytes from the I/O handle and forwards them into the pipe until it
+/// becomes full. When in writing mode, the thread pool reads bytes from the pipe and forwards them
+/// into the I/O handle.
+///
+/// Use [`Unblock::with_capacity()`] to configure the capacity of the pipe.
+///
+/// ### Reading
+///
+/// If you create an [`Unblock`]`<`[`Stdin`][`std::io::Stdin`]`>`, read some bytes from it,
+/// and then drop it, a blocked read operation may keep hanging on the thread pool. The next
+/// attempt to read from stdin will lose bytes read by the hanging operation. This is a difficult
+/// problem to solve, so make sure you only use a single stdin handle for the duration of the
+/// entire program.
+///
+/// ### Writing
 ///
 /// If writing data through the [`AsyncWrite`] trait, make sure to flush before dropping the
 /// [`Unblock`] handle or some buffered data might get lost.
 ///
-/// [`Unblock`] communicates with I/O operations on the thread pool through a pipe. That means an
-/// async read/write operation simply receives/sends some bytes from/into the pipe. On the other
-/// side of the pipe, the inner I/O handle reads bytes in advance until the pipe is full, and it
-/// writes all bytes received through the pipe.
+/// ### Seeking
 ///
-/// This kind of buffering has some interesting consequences. If [`Unblock`] wraps a
-/// [`File`][`std::fs::File`], note that a single read operation may move the file cursor farther
-/// than is the span of the operation! That's because reading happens in the background until the
-/// pipe gets full - blocking reads do not follow async reads byte-for-byte.
-///
-/// Use [`Unblock::with_capacity()`] to configure the capacity of the pipe.
+/// Because of buffering in the pipe, if [`Unblock`] wraps a [`File`][`std::fs::File`], a single
+/// read operation may move the file cursor farther than is the span of the operation. In fact,
+/// reading just keeps going in the background until the pipe gets full. Keep this mind when
+/// using [`AsyncSeek`] with [relative][`SeekFrom::Current`] offsets.
 ///
 /// # Examples
 ///
@@ -376,6 +397,14 @@ impl<T> Unblock<T> {
     ///
     /// * For [`Iterator`] types: 8192 items.
     /// * For [`Read`]/[`Write`] types: 8 MB.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use blocking::Unblock;
+    ///
+    /// let stdout = Unblock::with_capacity(64 * 1024, std::io::stdout());
+    /// ```
     pub fn with_capacity(cap: usize, io: T) -> Unblock<T> {
         Unblock {
             state: State::Idle(Some(Box::new(io))),
