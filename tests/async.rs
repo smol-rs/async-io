@@ -338,16 +338,19 @@ fn tcp_duplex() -> io::Result<()> {
 }
 
 #[test]
-fn close() -> io::Result<()> {
+fn shutdown() -> io::Result<()> {
     future::block_on(async {
         let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
         let addr = listener.get_ref().local_addr()?;
-        let ((mut reader, _), mut writer) =
+        let ((mut reader, _), writer) =
             future::try_zip(listener.accept(), Async::<TcpStream>::connect(addr)).await?;
 
         // The writer must be closed in order for `read_to_end()` to finish.
         let mut buf = Vec::new();
-        future::try_zip(reader.read_to_end(&mut buf), writer.close()).await?;
+        future::try_zip(reader.read_to_end(&mut buf), async {
+            writer.get_ref().shutdown(Shutdown::Write)
+        })
+        .await?;
 
         Ok(())
     })
