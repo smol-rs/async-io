@@ -7,7 +7,7 @@ use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawSocket;
 use std::panic;
-use std::sync::atomic::{AtomicBool, AtomicU8, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 use std::thread;
@@ -292,7 +292,6 @@ impl Reactor {
                     wakers: Vec::new(),
                 },
             }),
-            wakers_registered: AtomicU8::new(0),
         });
         sources.insert(source.clone());
 
@@ -471,18 +470,12 @@ impl ReactorLock<'_> {
                         if ev.writable {
                             state.write.tick = tick;
                             state.write.drain_into(&mut wakers);
-                            source
-                                .wakers_registered
-                                .fetch_and(!WRITERS_REGISTERED, Ordering::SeqCst);
                         }
 
                         // Wake readers if a readability event was emitted.
                         if ev.readable {
                             state.read.tick = tick;
                             state.read.drain_into(&mut wakers);
-                            source
-                                .wakers_registered
-                                .fetch_and(!READERS_REGISTERED, Ordering::SeqCst);
                         }
 
                         // Re-register if there are still writers or readers. The can happen if
@@ -544,15 +537,7 @@ pub(crate) struct Source {
 
     /// Inner state with registered wakers.
     state: Mutex<State>,
-
-    /// Whether there are wakers interested in events on this source.
-    ///
-    /// Hold two bits of information: `READERS_REGISTERED` and `WRITERS_REGISTERED`.
-    wakers_registered: AtomicU8,
 }
-
-const READERS_REGISTERED: u8 = 1 << 0;
-const WRITERS_REGISTERED: u8 = 1 << 1;
 
 /// Inner state with registered wakers.
 #[derive(Debug)]
@@ -608,8 +593,6 @@ impl Source {
                     writable: !state.write.is_empty(),
                 },
             )?;
-            self.wakers_registered
-                .fetch_or(READERS_REGISTERED, Ordering::SeqCst);
         }
 
         if let Some(w) = state.read.waker.take() {
@@ -643,23 +626,23 @@ impl Source {
                 }
             }
 
-            // If there are no other readers, re-register in the reactor.
-            if state.read.is_empty() {
-                Reactor::get().poller.interest(
-                    self.raw,
-                    Event {
-                        key: self.key,
-                        readable: true,
-                        writable: !state.write.is_empty(),
-                    },
-                )?;
-                self.wakers_registered
-                    .fetch_or(READERS_REGISTERED, Ordering::SeqCst);
-            }
+            let is_empty = (state.read.is_empty(), state.write.is_empty());
 
             // Register the current task's waker if not present already.
             if state.read.wakers.iter().all(|w| !w.will_wake(cx.waker())) {
                 state.read.wakers.push(cx.waker().clone());
+            }
+
+            // Update interest in this I/O handle.
+            if is_empty != (state.read.is_empty(), state.write.is_empty()) {
+                Reactor::get().poller.interest(
+                    self.raw,
+                    Event {
+                        key: self.key,
+                        readable: !state.read.is_empty(),
+                        writable: !state.write.is_empty(),
+                    },
+                )?;
             }
 
             // Remember the current ticks.
@@ -673,11 +656,6 @@ impl Source {
             Poll::Pending
         })
         .await
-    }
-
-    /// Returns `true` if there is at least one registered reader.
-    pub(crate) fn readers_registered(&self) -> bool {
-        self.wakers_registered.load(Ordering::SeqCst) & READERS_REGISTERED != 0
     }
 
     /// Registers a waker from `AsyncWrite`.
@@ -696,8 +674,6 @@ impl Source {
                     writable: true,
                 },
             )?;
-            self.wakers_registered
-                .fetch_or(WRITERS_REGISTERED, Ordering::SeqCst);
         }
 
         if let Some(w) = state.write.waker.take() {
@@ -731,23 +707,23 @@ impl Source {
                 }
             }
 
-            // If there are no other writers, re-register in the reactor.
-            if state.write.is_empty() {
+            let is_empty = (state.read.is_empty(), state.write.is_empty());
+
+            // Register the current task's waker if not present already.
+            if state.write.wakers.iter().all(|w| !w.will_wake(cx.waker())) {
+                state.write.wakers.push(cx.waker().clone());
+            }
+
+            // Update interest in this I/O handle.
+            if is_empty != (state.read.is_empty(), state.write.is_empty()) {
                 Reactor::get().poller.interest(
                     self.raw,
                     Event {
                         key: self.key,
                         readable: !state.read.is_empty(),
-                        writable: true,
+                        writable: !state.write.is_empty(),
                     },
                 )?;
-                self.wakers_registered
-                    .fetch_or(WRITERS_REGISTERED, Ordering::SeqCst);
-            }
-
-            // Register the current task's waker if not present already.
-            if state.write.wakers.iter().all(|w| !w.will_wake(cx.waker())) {
-                state.write.wakers.push(cx.waker().clone());
             }
 
             // Remember the current ticks.
@@ -761,11 +737,6 @@ impl Source {
             Poll::Pending
         })
         .await
-    }
-
-    /// Returns `true` if there is at least one registered writer.
-    pub(crate) fn writers_registered(&self) -> bool {
-        self.wakers_registered.load(Ordering::SeqCst) & WRITERS_REGISTERED != 0
     }
 }
 
