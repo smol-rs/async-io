@@ -81,25 +81,10 @@ use futures_lite::{future, pin, ready};
 
 use crate::reactor::{Reactor, Source};
 
+mod driver;
 mod reactor;
 
-/// Blocks the current thread on a future, processing I/O events when idle.
-///
-/// # Examples
-///
-/// ```
-/// use async_io::Timer;
-/// use std::time::Duration;
-///
-/// async_io::block_on(async {
-///     // This timer will likely be processed by the current
-///     // thread rather than the fallback "async-io" thread.
-///     Timer::after(Duration::from_millis(1)).await;
-/// });
-/// ```
-pub fn block_on<T>(future: impl Future<Output = T>) -> T {
-    Reactor::get().block_on(future)
-}
+pub use driver::block_on;
 
 /// A future that expires at a point in time.
 ///
