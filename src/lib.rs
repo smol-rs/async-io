@@ -575,15 +575,11 @@ impl<T> Async<T> {
     pub async fn read_with<R>(&self, op: impl FnMut(&T) -> io::Result<R>) -> io::Result<R> {
         let mut op = op;
         loop {
-            // Yield with some small probability - this improves fairness.
             future::poll_fn(|cx| maybe_yield(cx)).await;
-
             match op(self.get_ref()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return res,
             }
-
-            // Wait until the I/O handle becomes readable.
             optimistic(self.readable()).await?;
         }
     }
@@ -616,15 +612,11 @@ impl<T> Async<T> {
     ) -> io::Result<R> {
         let mut op = op;
         loop {
-            // Yield with some small probability - this improves fairness.
             future::poll_fn(|cx| maybe_yield(cx)).await;
-
             match op(self.get_mut()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return res,
             }
-
-            // Wait until the I/O handle becomes readable.
             optimistic(self.readable()).await?;
         }
     }
@@ -655,15 +647,11 @@ impl<T> Async<T> {
     pub async fn write_with<R>(&self, op: impl FnMut(&T) -> io::Result<R>) -> io::Result<R> {
         let mut op = op;
         loop {
-            // Yield with some small probability - this improves fairness.
             future::poll_fn(|cx| maybe_yield(cx)).await;
-
             match op(self.get_ref()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return res,
             }
-
-            // Wait until the I/O handle becomes writable.
             optimistic(self.writable()).await?;
         }
     }
@@ -697,15 +685,11 @@ impl<T> Async<T> {
     ) -> io::Result<R> {
         let mut op = op;
         loop {
-            // Yield with some small probability - this improves fairness.
             future::poll_fn(|cx| maybe_yield(cx)).await;
-
             match op(self.get_mut()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return res,
             }
-
-            // Wait until the I/O handle becomes writable.
             optimistic(self.writable()).await?;
         }
     }
