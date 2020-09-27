@@ -1,3 +1,4 @@
+use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io;
 use std::mem;
@@ -350,13 +351,13 @@ struct Direction {
     waker: Option<Waker>,
 
     /// Wakers of tasks waiting for the next event.
-    wakers: Vec<Waker>,
+    wakers: Arena<Option<Waker>>,
 }
 
 impl Direction {
     /// Returns `true` if there are no wakers interested in this direction.
     fn is_empty(&self) -> bool {
-        self.waker.is_none() && self.wakers.is_empty()
+        self.waker.is_none() && self.wakers.iter().all(|(_, opt)| opt.is_none())
     }
 
     /// Moves all wakers into a `Vec`.
@@ -364,7 +365,11 @@ impl Direction {
         if let Some(w) = self.waker.take() {
             dst.push(w);
         }
-        dst.append(&mut self.wakers);
+        for (_, opt) in self.wakers.iter_mut() {
+            if let Some(w) = opt.take() {
+                dst.push(w);
+            }
+        }
     }
 }
 
@@ -427,8 +432,10 @@ impl Source {
     /// Waits until the I/O source is readable or writable.
     async fn ready(&self, dir: usize) -> io::Result<()> {
         let mut ticks = None;
+        let mut _guard = None;
+        let index = Cell::new(None);
 
-        future::poll_fn(|cx| {
+        future::poll_fn(move |cx| {
             let mut state = self.state.lock().unwrap();
 
             // Check if the reactor has delivered a readability event.
@@ -441,15 +448,25 @@ impl Source {
                 }
             }
 
-            let is_empty = (state[READ].is_empty(), state[WRITE].is_empty());
+            let was_empty = state[dir].is_empty();
 
-            // Register the current task's waker if not present already.
-            if state[dir].wakers.iter().all(|w| !w.will_wake(cx.waker())) {
-                state[dir].wakers.push(cx.waker().clone());
-            }
+            // Register the current task's waker.
+            let i = match index.get() {
+                Some(i) => i,
+                None => {
+                    let i = state[dir].wakers.insert(None);
+                    _guard = Some(CallOnDrop(move || {
+                        let mut state = self.state.lock().unwrap();
+                        state[dir].wakers.remove(i);
+                    }));
+                    index.set(Some(i));
+                    i
+                }
+            };
+            state[dir].wakers[i] = Some(cx.waker().clone());
 
             // Update interest in this I/O handle.
-            if is_empty != (state[READ].is_empty(), state[WRITE].is_empty()) {
+            if was_empty {
                 Reactor::get().poller.interest(
                     self.raw,
                     Event {
@@ -471,5 +488,14 @@ impl Source {
             Poll::Pending
         })
         .await
+    }
+}
+
+/// Runs a closure when dropped.
+struct CallOnDrop<F: Fn()>(F);
+
+impl<F: Fn()> Drop for CallOnDrop<F> {
+    fn drop(&mut self) {
+        (self.0)();
     }
 }
