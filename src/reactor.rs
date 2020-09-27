@@ -280,11 +280,17 @@ impl Reactor {
         let source = Arc::new(Source {
             raw,
             key,
-            wakers: Mutex::new(Wakers {
-                tick_readable: 0,
-                tick_writable: 0,
-                readers: Vec::new(),
-                writers: Vec::new(),
+            state: Mutex::new(State {
+                read: Direction {
+                    tick: 0,
+                    waker: None,
+                    wakers: Vec::new(),
+                },
+                write: Direction {
+                    tick: 0,
+                    waker: None,
+                    wakers: Vec::new(),
+                },
             }),
             wakers_registered: AtomicU8::new(0),
         });
@@ -459,37 +465,36 @@ impl ReactorLock<'_> {
                 for ev in self.events.iter() {
                     // Check if there is a source in the table with this key.
                     if let Some(source) = sources.get(ev.key) {
-                        let mut w = source.wakers.lock().unwrap();
-
-                        // Wake readers if a readability event was emitted.
-                        if ev.readable {
-                            w.tick_readable = tick;
-                            wakers.append(&mut w.readers);
-                            source
-                                .wakers_registered
-                                .fetch_and(!READERS_REGISTERED, Ordering::SeqCst);
-                        }
+                        let mut state = source.state.lock().unwrap();
 
                         // Wake writers if a writability event was emitted.
                         if ev.writable {
-                            w.tick_writable = tick;
-                            wakers.append(&mut w.writers);
+                            state.write.tick = tick;
+                            state.write.drain_into(&mut wakers);
                             source
                                 .wakers_registered
                                 .fetch_and(!WRITERS_REGISTERED, Ordering::SeqCst);
                         }
 
-                        // Re-register if there are still writers or
-                        // readers. The can happen if e.g. we were
-                        // previously interested in both readability and
-                        // writability, but only one of them was emitted.
-                        if !(w.writers.is_empty() && w.readers.is_empty()) {
+                        // Wake readers if a readability event was emitted.
+                        if ev.readable {
+                            state.read.tick = tick;
+                            state.read.drain_into(&mut wakers);
+                            source
+                                .wakers_registered
+                                .fetch_and(!READERS_REGISTERED, Ordering::SeqCst);
+                        }
+
+                        // Re-register if there are still writers or readers. The can happen if
+                        // e.g. we were previously interested in both readability and writability,
+                        // but only one of them was emitted.
+                        if !(state.write.is_empty() && state.read.is_empty()) {
                             self.reactor.poller.interest(
                                 source.raw,
                                 Event {
                                     key: source.key,
-                                    readable: !w.readers.is_empty(),
-                                    writable: !w.writers.is_empty(),
+                                    readable: !state.read.is_empty(),
+                                    writable: !state.write.is_empty(),
                                 },
                             )?;
                         }
@@ -537,8 +542,8 @@ pub(crate) struct Source {
     /// The key of this source obtained during registration.
     key: usize,
 
-    /// Tasks interested in events on this source.
-    wakers: Mutex<Wakers>,
+    /// Inner state with registered wakers.
+    state: Mutex<State>,
 
     /// Whether there are wakers interested in events on this source.
     ///
@@ -549,48 +554,103 @@ pub(crate) struct Source {
 const READERS_REGISTERED: u8 = 1 << 0;
 const WRITERS_REGISTERED: u8 = 1 << 1;
 
-/// Tasks interested in events on a source.
+/// Inner state with registered wakers.
 #[derive(Debug)]
-struct Wakers {
-    /// Last reactor tick that delivered a readability event.
-    tick_readable: usize,
+struct State {
+    /// State of the read direction.
+    read: Direction,
 
-    /// Last reactor tick that delivered a writability event.
-    tick_writable: usize,
+    /// State of the write direction.
+    write: Direction,
+}
 
-    /// Tasks waiting for the next readability event.
-    readers: Vec<Waker>,
+/// A read or write direction.
+#[derive(Debug)]
+struct Direction {
+    /// Last reactor tick that delivered an event.
+    tick: usize,
 
-    /// Tasks waiting for the next writability event.
-    writers: Vec<Waker>,
+    /// Waker stored by `AsyncRead` or `AsyncWrite`.
+    waker: Option<Waker>,
+
+    /// Wakers of tasks waiting for the next event.
+    wakers: Vec<Waker>,
+}
+
+impl Direction {
+    /// Returns `true` if there are no wakers interested in this direction.
+    fn is_empty(&self) -> bool {
+        self.waker.is_none() && self.wakers.is_empty()
+    }
+
+    fn drain_into(&mut self, dst: &mut Vec<Waker>) {
+        if let Some(w) = self.waker.take() {
+            dst.push(w);
+        }
+        dst.append(&mut self.wakers);
+    }
 }
 
 impl Source {
+    /// Registers a waker from `AsyncRead`.
+    ///
+    /// If a different waker is already registered, it gets replaced and woken.
+    pub(crate) fn register_reader(&self, waker: &Waker) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+
+        // If there are no other readers, re-register in the reactor.
+        if state.read.is_empty() {
+            Reactor::get().poller.interest(
+                self.raw,
+                Event {
+                    key: self.key,
+                    readable: true,
+                    writable: !state.write.is_empty(),
+                },
+            )?;
+            self.wakers_registered
+                .fetch_or(READERS_REGISTERED, Ordering::SeqCst);
+        }
+
+        if let Some(w) = state.read.waker.take() {
+            if w.will_wake(waker) {
+                state.read.waker = Some(w);
+                return Ok(());
+            }
+
+            // Don't let a panicking waker blow everything up.
+            panic::catch_unwind(|| w.wake()).ok();
+        }
+
+        state.read.waker = Some(waker.clone());
+        Ok(())
+    }
+
     /// Waits until the I/O source is readable.
     pub(crate) async fn readable(&self) -> io::Result<()> {
         let mut ticks = None;
 
         future::poll_fn(|cx| {
-            let mut w = self.wakers.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
 
             // Check if the reactor has delivered a readability event.
             if let Some((a, b)) = ticks {
-                // If `tick_readable` has changed to a value other than the old reactor tick, that
-                // means a newer reactor tick has delivered a readability event.
-                if w.tick_readable != a && w.tick_readable != b {
+                // If `state.read.tick` has changed to a value other than the old reactor tick,
+                // that means a newer reactor tick has delivered a readability event.
+                if state.read.tick != a && state.read.tick != b {
                     log::trace!("readable: fd={}", self.raw);
                     return Poll::Ready(Ok(()));
                 }
             }
 
             // If there are no other readers, re-register in the reactor.
-            if w.readers.is_empty() {
+            if state.read.is_empty() {
                 Reactor::get().poller.interest(
                     self.raw,
                     Event {
                         key: self.key,
                         readable: true,
-                        writable: !w.writers.is_empty(),
+                        writable: !state.write.is_empty(),
                     },
                 )?;
                 self.wakers_registered
@@ -598,19 +658,15 @@ impl Source {
             }
 
             // Register the current task's waker if not present already.
-            if w.readers.iter().all(|w| !w.will_wake(cx.waker())) {
-                w.readers.push(cx.waker().clone());
-                if limit_waker_list(&mut w.readers) {
-                    self.wakers_registered
-                        .fetch_and(!READERS_REGISTERED, Ordering::SeqCst);
-                }
+            if state.read.wakers.iter().all(|w| !w.will_wake(cx.waker())) {
+                state.read.wakers.push(cx.waker().clone());
             }
 
             // Remember the current ticks.
             if ticks.is_none() {
                 ticks = Some((
                     Reactor::get().ticker.load(Ordering::SeqCst),
-                    w.tick_readable,
+                    state.read.tick,
                 ));
             }
 
@@ -624,30 +680,64 @@ impl Source {
         self.wakers_registered.load(Ordering::SeqCst) & READERS_REGISTERED != 0
     }
 
+    /// Registers a waker from `AsyncWrite`.
+    ///
+    /// If a different waker is already registered, it gets replaced and woken.
+    pub(crate) fn register_writer(&self, waker: &Waker) -> io::Result<()> {
+        let mut state = self.state.lock().unwrap();
+
+        // If there are no other writers, re-register in the reactor.
+        if state.write.is_empty() {
+            Reactor::get().poller.interest(
+                self.raw,
+                Event {
+                    key: self.key,
+                    readable: !state.read.is_empty(),
+                    writable: true,
+                },
+            )?;
+            self.wakers_registered
+                .fetch_or(WRITERS_REGISTERED, Ordering::SeqCst);
+        }
+
+        if let Some(w) = state.write.waker.take() {
+            if w.will_wake(waker) {
+                state.write.waker = Some(w);
+                return Ok(());
+            }
+
+            // Don't let a panicking waker blow everything up.
+            panic::catch_unwind(|| w.wake()).ok();
+        }
+
+        state.write.waker = Some(waker.clone());
+        Ok(())
+    }
+
     /// Waits until the I/O source is writable.
     pub(crate) async fn writable(&self) -> io::Result<()> {
         let mut ticks = None;
 
         future::poll_fn(|cx| {
-            let mut w = self.wakers.lock().unwrap();
+            let mut state = self.state.lock().unwrap();
 
             // Check if the reactor has delivered a writability event.
             if let Some((a, b)) = ticks {
-                // If `tick_writable` has changed to a value other than the old reactor tick, that
-                // means a newer reactor tick has delivered a writability event.
-                if w.tick_writable != a && w.tick_writable != b {
+                // If `state.write.tick` has changed to a value other than the old reactor tick,
+                // that means a newer reactor tick has delivered a writability event.
+                if state.write.tick != a && state.write.tick != b {
                     log::trace!("writable: fd={}", self.raw);
                     return Poll::Ready(Ok(()));
                 }
             }
 
             // If there are no other writers, re-register in the reactor.
-            if w.writers.is_empty() {
+            if state.write.is_empty() {
                 Reactor::get().poller.interest(
                     self.raw,
                     Event {
                         key: self.key,
-                        readable: !w.readers.is_empty(),
+                        readable: !state.read.is_empty(),
                         writable: true,
                     },
                 )?;
@@ -656,19 +746,15 @@ impl Source {
             }
 
             // Register the current task's waker if not present already.
-            if w.writers.iter().all(|w| !w.will_wake(cx.waker())) {
-                w.writers.push(cx.waker().clone());
-                if limit_waker_list(&mut w.writers) {
-                    self.wakers_registered
-                        .fetch_and(!WRITERS_REGISTERED, Ordering::SeqCst);
-                }
+            if state.write.wakers.iter().all(|w| !w.will_wake(cx.waker())) {
+                state.write.wakers.push(cx.waker().clone());
             }
 
             // Remember the current ticks.
             if ticks.is_none() {
                 ticks = Some((
                     Reactor::get().ticker.load(Ordering::SeqCst),
-                    w.tick_writable,
+                    state.write.tick,
                 ));
             }
 
@@ -680,32 +766,6 @@ impl Source {
     /// Returns `true` if there is at least one registered writer.
     pub(crate) fn writers_registered(&self) -> bool {
         self.wakers_registered.load(Ordering::SeqCst) & WRITERS_REGISTERED != 0
-    }
-}
-
-/// Wakes up all wakers in the list if it grew too big and returns whether it did.
-///
-/// The waker list keeps growing in pathological cases where a single async I/O handle has lots of
-/// different reader or writer tasks. If the number of interested wakers crosses some threshold, we
-/// clear the list and wake all of them at once.
-///
-/// This strategy prevents memory leaks by bounding the number of stored wakers. However, since all
-/// wakers get woken, tasks might simply re-register their interest again, thus creating an
-/// infinite loop and burning CPU cycles forever.
-///
-/// However, we don't worry about such scenarios because it's very unlikely to have more than two
-/// actually concurrent tasks operating on a single async I/O handle. If we happen to cross the
-/// aforementioned threshold, we have bigger problems to worry about.
-fn limit_waker_list(wakers: &mut Vec<Waker>) -> bool {
-    if wakers.len() > 50 {
-        log::trace!("limit_waker_list: clearing the list");
-        for waker in wakers.drain(..) {
-            // Don't let a panicking waker blow everything up.
-            panic::catch_unwind(|| waker.wake()).ok();
-        }
-        true
-    } else {
-        false
     }
 }
 

@@ -77,7 +77,7 @@ use std::os::windows::io::{AsRawSocket, FromRawSocket, RawSocket};
 
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
-use futures_lite::{future, pin};
+use futures_lite::{future, pin, ready};
 
 use crate::reactor::{Reactor, Source};
 
@@ -593,7 +593,7 @@ impl<T> Async<T> {
             // If there are no blocked readers, attempt the read operation.
             if !self.source.readers_registered() {
                 // Yield with some small probability - this improves fairness.
-                maybe_yield().await;
+                future::poll_fn(|cx| maybe_yield(cx)).await;
 
                 match op(self.get_ref()) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
@@ -637,7 +637,7 @@ impl<T> Async<T> {
             // If there are no blocked readers, attempt the read operation.
             if !self.source.readers_registered() {
                 // Yield with some small probability - this improves fairness.
-                maybe_yield().await;
+                future::poll_fn(|cx| maybe_yield(cx)).await;
 
                 match op(self.get_mut()) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
@@ -679,7 +679,7 @@ impl<T> Async<T> {
             // If there are no blocked readers, attempt the write operation.
             if !self.source.writers_registered() {
                 // Yield with some small probability - this improves fairness.
-                maybe_yield().await;
+                future::poll_fn(|cx| maybe_yield(cx)).await;
 
                 match op(self.get_ref()) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
@@ -724,7 +724,7 @@ impl<T> Async<T> {
             // If there are no blocked readers, attempt the write operation.
             if !self.source.writers_registered() {
                 // Yield with some small probability - this improves fairness.
-                maybe_yield().await;
+                future::poll_fn(|cx| maybe_yield(cx)).await;
 
                 match op(self.get_mut()) {
                     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
@@ -756,7 +756,13 @@ impl<T: Read> AsyncRead for Async<T> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        poll_future(cx, self.read_with_mut(|io| io.read(buf)))
+        ready!(maybe_yield(cx));
+        match (&mut *self).get_mut().read(buf) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_reader(cx.waker())?;
+        Poll::Pending
     }
 
     fn poll_read_vectored(
@@ -764,7 +770,13 @@ impl<T: Read> AsyncRead for Async<T> {
         cx: &mut Context<'_>,
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
-        poll_future(cx, self.read_with_mut(|io| io.read_vectored(bufs)))
+        ready!(maybe_yield(cx));
+        match (&mut *self).get_mut().read_vectored(bufs) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_reader(cx.waker())?;
+        Poll::Pending
     }
 }
 
@@ -777,7 +789,13 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        poll_future(cx, self.read_with(|io| (&*io).read(buf)))
+        ready!(maybe_yield(cx));
+        match (&*self).get_ref().read(buf) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_reader(cx.waker())?;
+        Poll::Pending
     }
 
     fn poll_read_vectored(
@@ -785,7 +803,13 @@ where
         cx: &mut Context<'_>,
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
-        poll_future(cx, self.read_with(|io| (&*io).read_vectored(bufs)))
+        ready!(maybe_yield(cx));
+        match (&*self).get_ref().read_vectored(bufs) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_reader(cx.waker())?;
+        Poll::Pending
     }
 }
 
@@ -795,7 +819,13 @@ impl<T: Write> AsyncWrite for Async<T> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        poll_future(cx, self.write_with_mut(|io| io.write(buf)))
+        ready!(maybe_yield(cx));
+        match (&mut *self).get_mut().write(buf) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_writer(cx.waker())?;
+        Poll::Pending
     }
 
     fn poll_write_vectored(
@@ -803,11 +833,23 @@ impl<T: Write> AsyncWrite for Async<T> {
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        poll_future(cx, self.write_with_mut(|io| io.write_vectored(bufs)))
+        ready!(maybe_yield(cx));
+        match (&mut *self).get_mut().write_vectored(bufs) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_writer(cx.waker())?;
+        Poll::Pending
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        poll_future(cx, self.write_with_mut(|io| io.flush()))
+        ready!(maybe_yield(cx));
+        match (&mut *self).get_mut().flush() {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_writer(cx.waker())?;
+        Poll::Pending
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -824,7 +866,13 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        poll_future(cx, self.write_with(|io| (&*io).write(buf)))
+        ready!(maybe_yield(cx));
+        match (&*self).get_ref().write(buf) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_writer(cx.waker())?;
+        Poll::Pending
     }
 
     fn poll_write_vectored(
@@ -832,11 +880,23 @@ where
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        poll_future(cx, self.write_with(|io| (&*io).write_vectored(bufs)))
+        ready!(maybe_yield(cx));
+        match (&*self).get_ref().write_vectored(bufs) {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_writer(cx.waker())?;
+        Poll::Pending
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        poll_future(cx, self.write_with(|io| (&*io).flush()))
+        ready!(maybe_yield(cx));
+        match (&*self).get_ref().flush() {
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            res => return Poll::Ready(res),
+        }
+        self.source.register_writer(cx.waker())?;
+        Poll::Pending
     }
 
     fn poll_close(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -1462,12 +1522,6 @@ impl TryFrom<std::os::unix::net::UnixDatagram> for Async<std::os::unix::net::Uni
     }
 }
 
-/// Polls a future once.
-fn poll_future<T>(cx: &mut Context<'_>, fut: impl Future<Output = T>) -> Poll<T> {
-    pin!(fut);
-    fut.poll(cx)
-}
-
 /// Polls a future once, waits for a wakeup, and then optimistically assumes the future is ready.
 async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()> {
     let mut polled = false;
@@ -1484,9 +1538,16 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
     .await
 }
 
-/// Yield with some small probability.
-async fn maybe_yield() {
+/// Yields with some small probability.
+///
+/// If a task is doing a lot of I/O and never gets blocked on it, it may keep the executor busy
+/// forever without giving other tasks a chance to run. To prevent this kind of task starvation,
+/// I/O operations yield randomly even if they are ready.
+fn maybe_yield(cx: &mut Context<'_>) -> Poll<()> {
     if fastrand::usize(..100) == 0 {
-        future::yield_now().await;
+        cx.waker().wake_by_ref();
+        Poll::Pending
+    } else {
+        Poll::Ready(())
     }
 }
