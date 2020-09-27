@@ -402,7 +402,7 @@ impl Source {
     /// If a different waker is already registered, it gets replaced and woken.
     fn register(&self, dir: usize, waker: &Waker) -> io::Result<()> {
         let mut state = self.state.lock().unwrap();
-        let is_empty = (state[READ].is_empty(), state[WRITE].is_empty());
+        let was_empty = state[dir].is_empty();
 
         if let Some(w) = state[dir].waker.take() {
             if w.will_wake(waker) {
@@ -414,7 +414,7 @@ impl Source {
         state[dir].waker = Some(waker.clone());
 
         // Update interest in this I/O handle.
-        if is_empty != (state[READ].is_empty(), state[WRITE].is_empty()) {
+        if was_empty {
             Reactor::get().poller.interest(
                 self.raw,
                 Event {
@@ -478,7 +478,7 @@ impl Source {
 
             // Remember the current ticks.
             if ticks.is_none() {
-                ticks = Some((Reactor::get().ticker(), state[READ].tick));
+                ticks = Some((Reactor::get().ticker(), state[dir].tick));
             }
 
             Poll::Pending
