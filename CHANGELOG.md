@@ -1,3 +1,7 @@
+# Version 1.1.4
+
+- Implement proper cancelation for `readable()` and `writable()`.
+
 # Version 1.1.3
 
 - Improve docs.
