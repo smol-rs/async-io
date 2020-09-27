@@ -434,7 +434,7 @@ impl Source {
         let mut index = None;
         let mut _guard = None;
 
-        future::poll_fn(move |cx| {
+        future::poll_fn(|cx| {
             let mut state = self.state.lock().unwrap();
 
             // Check if the reactor has delivered a readability event.
@@ -478,10 +478,7 @@ impl Source {
 
             // Remember the current ticks.
             if ticks.is_none() {
-                ticks = Some((
-                    Reactor::get().ticker.load(Ordering::SeqCst),
-                    state[READ].tick,
-                ));
+                ticks = Some((Reactor::get().ticker(), state[READ].tick));
             }
 
             Poll::Pending
