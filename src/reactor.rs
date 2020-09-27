@@ -1,4 +1,3 @@
-use std::cell::Cell;
 use std::collections::BTreeMap;
 use std::io;
 use std::mem;
@@ -13,7 +12,7 @@ use std::task::{Poll, Waker};
 use std::time::{Duration, Instant};
 
 use concurrent_queue::ConcurrentQueue;
-use futures_lite::*;
+use futures_lite::future;
 use once_cell::sync::Lazy;
 use polling::{Event, Poller};
 use vec_arena::Arena;
@@ -432,8 +431,8 @@ impl Source {
     /// Waits until the I/O source is readable or writable.
     async fn ready(&self, dir: usize) -> io::Result<()> {
         let mut ticks = None;
+        let mut index = None;
         let mut _guard = None;
-        let index = Cell::new(None);
 
         future::poll_fn(move |cx| {
             let mut state = self.state.lock().unwrap();
@@ -451,7 +450,7 @@ impl Source {
             let was_empty = state[dir].is_empty();
 
             // Register the current task's waker.
-            let i = match index.get() {
+            let i = match index {
                 Some(i) => i,
                 None => {
                     let i = state[dir].wakers.insert(None);
@@ -459,7 +458,7 @@ impl Source {
                         let mut state = self.state.lock().unwrap();
                         state[dir].wakers.remove(i);
                     }));
-                    index.set(Some(i));
+                    index = Some(i);
                     i
                 }
             };

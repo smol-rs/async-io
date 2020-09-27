@@ -1,11 +1,12 @@
 use std::cell::Cell;
+use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use futures_lite::*;
+use futures_lite::pin;
 use once_cell::sync::Lazy;
 use waker_fn::waker_fn;
 
