@@ -1,3 +1,7 @@
+# Version 1.1.5
+
+- Remove randomized yielding in write operations.
+
 # Version 1.1.4
 
 - Implement proper cancelation for `readable()` and `writable()`.
