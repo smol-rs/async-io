@@ -647,7 +647,6 @@ impl<T> Async<T> {
     pub async fn write_with<R>(&self, op: impl FnMut(&T) -> io::Result<R>) -> io::Result<R> {
         let mut op = op;
         loop {
-            future::poll_fn(|cx| maybe_yield(cx)).await;
             match op(self.get_ref()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return res,
@@ -685,7 +684,6 @@ impl<T> Async<T> {
     ) -> io::Result<R> {
         let mut op = op;
         loop {
-            future::poll_fn(|cx| maybe_yield(cx)).await;
             match op(self.get_mut()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return res,
@@ -776,7 +774,6 @@ impl<T: Write> AsyncWrite for Async<T> {
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        ready!(maybe_yield(cx));
         match (&mut *self).get_mut().write(buf) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -790,7 +787,6 @@ impl<T: Write> AsyncWrite for Async<T> {
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        ready!(maybe_yield(cx));
         match (&mut *self).get_mut().write_vectored(bufs) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -800,7 +796,6 @@ impl<T: Write> AsyncWrite for Async<T> {
     }
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        ready!(maybe_yield(cx));
         match (&mut *self).get_mut().flush() {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -823,7 +818,6 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        ready!(maybe_yield(cx));
         match (&*self).get_ref().write(buf) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -837,7 +831,6 @@ where
         cx: &mut Context<'_>,
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
-        ready!(maybe_yield(cx));
         match (&*self).get_ref().write_vectored(bufs) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -847,7 +840,6 @@ where
     }
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        ready!(maybe_yield(cx));
         match (&*self).get_ref().flush() {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
