@@ -1,3 +1,7 @@
+# Version 1.1.6
+
+- Remove randomized yielding everywhere.
+
 # Version 1.1.5
 
 - Remove randomized yielding in write operations.
