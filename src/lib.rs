@@ -77,7 +77,7 @@ use std::os::windows::io::{AsRawSocket, FromRawSocket, RawSocket};
 
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
-use futures_lite::{future, pin, ready};
+use futures_lite::{future, pin};
 
 use crate::reactor::{Reactor, Source};
 
@@ -575,7 +575,6 @@ impl<T> Async<T> {
     pub async fn read_with<R>(&self, op: impl FnMut(&T) -> io::Result<R>) -> io::Result<R> {
         let mut op = op;
         loop {
-            future::poll_fn(|cx| maybe_yield(cx)).await;
             match op(self.get_ref()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return res,
@@ -612,7 +611,6 @@ impl<T> Async<T> {
     ) -> io::Result<R> {
         let mut op = op;
         loop {
-            future::poll_fn(|cx| maybe_yield(cx)).await;
             match op(self.get_mut()) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return res,
@@ -711,7 +709,6 @@ impl<T: Read> AsyncRead for Async<T> {
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        ready!(maybe_yield(cx));
         match (&mut *self).get_mut().read(buf) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -725,7 +722,6 @@ impl<T: Read> AsyncRead for Async<T> {
         cx: &mut Context<'_>,
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
-        ready!(maybe_yield(cx));
         match (&mut *self).get_mut().read_vectored(bufs) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -744,7 +740,6 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        ready!(maybe_yield(cx));
         match (&*self).get_ref().read(buf) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -758,7 +753,6 @@ where
         cx: &mut Context<'_>,
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
-        ready!(maybe_yield(cx));
         match (&*self).get_ref().read_vectored(bufs) {
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
             res => return Poll::Ready(res),
@@ -1485,18 +1479,4 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
         }
     })
     .await
-}
-
-/// Yields with some small probability.
-///
-/// If a task is doing a lot of I/O and never gets blocked on it, it may keep the executor busy
-/// forever without giving other tasks a chance to run. To prevent this kind of task starvation,
-/// I/O operations yield randomly even if they are ready.
-fn maybe_yield(cx: &mut Context<'_>) -> Poll<()> {
-    if fastrand::usize(..100) == 0 {
-        cx.waker().wake_by_ref();
-        Poll::Pending
-    } else {
-        Poll::Ready(())
-    }
 }
