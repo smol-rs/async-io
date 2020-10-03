@@ -1,3 +1,7 @@
+# Version 1.1.8
+
+- Re-enable `async-net` dependency and fix CI.
+
 # Version 1.1.7
 
 - Update `async-io` to v2.0.0
