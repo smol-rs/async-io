@@ -1,3 +1,7 @@
+# Version 1.1.7
+
+- Update `async-io` to v2.0.0
+
 # Version 1.1.6
 
 - Remove randomized yielding everywhere.

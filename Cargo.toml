@@ -1,6 +1,6 @@
 [package]
 name = "async-io"
-version = "1.1.6"
+version = "1.1.7"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 description = "Async I/O and timers"
