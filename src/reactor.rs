@@ -87,18 +87,25 @@ impl Reactor {
         #[cfg(unix)] raw: RawFd,
         #[cfg(windows)] raw: RawSocket,
     ) -> io::Result<Arc<Source>> {
-        // Register the file descriptor.
-        self.poller.insert(raw)?;
-
         // Create an I/O source for this file descriptor.
-        let mut sources = self.sources.lock().unwrap();
-        let key = sources.next_vacant();
-        let source = Arc::new(Source {
-            raw,
-            key,
-            state: Default::default(),
-        });
-        sources.insert(source.clone());
+        let source = {
+            let mut sources = self.sources.lock().unwrap();
+            let key = sources.next_vacant();
+            let source = Arc::new(Source {
+                raw,
+                key,
+                state: Default::default(),
+            });
+            sources.insert(source.clone());
+            source
+        };
+
+        // Register the file descriptor.
+        if let Err(err) = self.poller.add(raw, Event::none(source.key)) {
+            let mut sources = self.sources.lock().unwrap();
+            sources.remove(source.key);
+            return Err(err);
+        }
 
         Ok(source)
     }
@@ -107,7 +114,7 @@ impl Reactor {
     pub(crate) fn remove_io(&self, source: &Source) -> io::Result<()> {
         let mut sources = self.sources.lock().unwrap();
         sources.remove(source.key);
-        self.poller.remove(source.raw)
+        self.poller.delete(source.raw)
     }
 
     /// Registers a timer in the reactor.
@@ -283,7 +290,7 @@ impl ReactorLock<'_> {
                         // e.g. we were previously interested in both readability and writability,
                         // but only one of them was emitted.
                         if !state[READ].is_empty() || !state[WRITE].is_empty() {
-                            self.reactor.poller.interest(
+                            self.reactor.poller.modify(
                                 source.raw,
                                 Event {
                                     key: source.key,
@@ -415,7 +422,7 @@ impl Source {
 
         // Update interest in this I/O handle.
         if was_empty {
-            Reactor::get().poller.interest(
+            Reactor::get().poller.modify(
                 self.raw,
                 Event {
                     key: self.key,
@@ -466,7 +473,7 @@ impl Source {
 
             // Update interest in this I/O handle.
             if was_empty {
-                Reactor::get().poller.interest(
+                Reactor::get().poller.modify(
                     self.raw,
                     Event {
                         key: self.key,

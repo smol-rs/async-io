@@ -53,7 +53,6 @@
 //! # std::io::Result::Ok(()) });
 //! ```
 
-#![forbid(unsafe_code)]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
 use std::convert::TryFrom;
@@ -73,7 +72,7 @@ use std::{
 };
 
 #[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, FromRawSocket, RawSocket};
+use std::os::windows::io::{AsRawSocket, RawSocket};
 
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
@@ -393,8 +392,21 @@ impl<T: AsRawFd> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
+        let fd = io.as_raw_fd();
+
+        // Put the file descriptor in non-blocking mode.
+        unsafe {
+            let mut res = libc::fcntl(fd, libc::F_GETFL);
+            if res != -1 {
+                res = libc::fcntl(fd, libc::F_SETFL, res | libc::O_NONBLOCK);
+            }
+            if res == -1 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+
         Ok(Async {
-            source: Reactor::get().insert_io(io.as_raw_fd())?,
+            source: Reactor::get().insert_io(fd)?,
             io: Some(io),
         })
     }
@@ -434,8 +446,26 @@ impl<T: AsRawSocket> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
+        let sock = io.as_raw_socket();
+
+        // Put the socket in non-blocking mode.
+        unsafe {
+            use winapi::ctypes;
+            use winapi::um::winsock2;
+
+            let mut nonblocking = true as ctypes::c_ulong;
+            let res = winsock2::ioctlsocket(
+                sock as winsock2::SOCKET,
+                winsock2::FIONBIO,
+                &mut nonblocking,
+            );
+            if res != 0 {
+                return Err(io::Error::last_os_error());
+            }
+        }
+
         Ok(Async {
-            source: Reactor::get().insert_io(io.as_raw_socket())?,
+            source: Reactor::get().insert_io(sock)?,
             io: Some(io),
         })
     }
