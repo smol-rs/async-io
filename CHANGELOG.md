@@ -1,3 +1,7 @@
+# Version 1.1.9
+
+- Only require `libc` on Unix platforms.
+
 # Version 1.1.8
 
 - Re-enable `async-net` dependency and fix CI.
