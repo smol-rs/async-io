@@ -14,8 +14,8 @@ readme = "README.md"
 
 [dependencies]
 async-channel = "1.4.0"
+async-task = "4.0.2"
 atomic-waker = "1.0.0"
 fastrand = "1.3.4"
 futures-lite = "1.0.0"
 once_cell = "1.4.1"
-waker-fn = "1.0.0"
