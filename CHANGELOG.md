@@ -1,3 +1,7 @@
+# Version 1.0.1
+
+- Use `async-task`.
+
 # Version 1.0.0
 
 - Stabilize.
