@@ -719,6 +719,37 @@ impl<T> Async<T> {
             optimistic(self.writable()).await?;
         }
     }
+
+
+    /// Waits until the I/O handle is readable.
+    ///
+    /// This function completes when a read operation on this I/O handle wouldn't block.
+    pub fn poll_readable(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let readable = self.source.readable();
+        pin!(readable);
+        if let Poll::Ready(res) = readable.poll(cx) {
+            Poll::Ready(res)
+        } else if let Err(err) = self.source.register_reader(cx.waker()) {
+            Poll::Ready(Err(err))
+        } else {
+            Poll::Pending
+        }
+    }
+
+    /// Waits until the I/O handle is writable.
+    ///
+    /// This function completes when a write operation on this I/O handle wouldn't block.
+    pub fn poll_writable(&mut self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        let writable = self.source.writable();
+        pin!(writable);
+        if let Poll::Ready(res) = writable.poll(cx) {
+            Poll::Ready(res)
+        } else if let Err(err) = self.source.register_writer(cx.waker()) {
+            Poll::Ready(Err(err))
+        } else {
+            Poll::Pending
+        }
+    }
 }
 
 impl<T> Drop for Async<T> {
