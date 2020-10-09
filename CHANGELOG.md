@@ -1,3 +1,7 @@
+# Version 1.1.10
+
+- Update `futures-lite`.
+
 # Version 1.1.9
 
 - Only require `libc` on Unix platforms.
