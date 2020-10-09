@@ -9,9 +9,10 @@
 #[cfg(target_os = "linux")]
 fn main() -> std::io::Result<()> {
     use std::ffi::OsString;
+    use std::io;
 
     use async_io::Async;
-    use futures_lite::*;
+    use futures_lite::future;
     use inotify::{EventMask, Inotify, WatchMask};
 
     type Event = (OsString, EventMask);

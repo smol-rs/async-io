@@ -8,9 +8,10 @@
 
 #[cfg(unix)]
 fn main() -> std::io::Result<()> {
-    use async_io::Async;
-    use futures_lite::*;
     use std::os::unix::net::UnixStream;
+
+    use async_io::Async;
+    use futures_lite::{future, prelude::*};
 
     future::block_on(async {
         // Create a Unix stream that receives a byte on each signal occurrence.

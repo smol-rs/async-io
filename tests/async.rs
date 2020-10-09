@@ -8,7 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use async_io::{Async, Timer};
-use futures_lite::*;
+use futures_lite::{future, prelude::*};
 #[cfg(unix)]
 use tempfile::tempdir;
 

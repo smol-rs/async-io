@@ -15,7 +15,7 @@ readme = "README.md"
 [dependencies]
 concurrent-queue = "1.2.2"
 fastrand = "1.3.5"
-futures-lite = "1.4.0"
+futures-lite = "1.11.0"
 log = "0.4.11"
 nb-connect = "1.0.0"
 once_cell = "1.4.1"

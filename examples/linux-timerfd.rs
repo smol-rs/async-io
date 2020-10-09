@@ -8,11 +8,12 @@
 
 #[cfg(target_os = "linux")]
 fn main() -> std::io::Result<()> {
+    use std::io;
     use std::os::unix::io::AsRawFd;
     use std::time::{Duration, Instant};
 
     use async_io::Async;
-    use futures_lite::*;
+    use futures_lite::future;
     use timerfd::{SetTimeFlags, TimerFd, TimerState};
 
     /// Converts a [`nix::Error`] into [`std::io::Error`].
