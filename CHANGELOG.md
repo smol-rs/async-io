@@ -1,3 +1,7 @@
+# Version 1.0.2
+
+- Update `futures-lite`.
+
 # Version 1.0.1
 
 - Use `async-task`.
