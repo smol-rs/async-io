@@ -6,11 +6,10 @@
 //! cargo run --example ls .
 //! ```
 
-use std::env;
-use std::fs;
+use std::{env, fs, io};
 
 use blocking::Unblock;
-use futures_lite::*;
+use futures_lite::{future, prelude::*};
 
 fn main() -> io::Result<()> {
     let path = env::args().nth(1).unwrap_or(".".into());

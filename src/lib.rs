@@ -22,44 +22,43 @@
 //!
 //! ```no_run
 //! use blocking::unblock;
-//! use futures_lite::*;
 //! use std::fs;
 //!
-//! # future::block_on(async {
+//! # futures_lite::future::block_on(async {
 //! let contents = unblock(|| fs::read_to_string("file.txt")).await?;
 //! println!("{}", contents);
-//! # io::Result::Ok(()) });
+//! # std::io::Result::Ok(()) });
 //! ```
 //!
 //! Read a file and pipe its contents to stdout:
 //!
 //! ```no_run
 //! use blocking::{unblock, Unblock};
-//! use futures_lite::*;
+//! use futures_lite::io;
 //! use std::fs::File;
 //!
-//! # future::block_on(async {
+//! # futures_lite::future::block_on(async {
 //! let input = unblock(|| File::open("file.txt")).await?;
 //! let input = Unblock::new(input);
 //! let mut output = Unblock::new(std::io::stdout());
 //!
 //! io::copy(input, &mut output).await?;
-//! # io::Result::Ok(()) });
+//! # std::io::Result::Ok(()) });
 //! ```
 //!
 //! Iterate over the contents of a directory:
 //!
 //! ```no_run
 //! use blocking::Unblock;
-//! use futures_lite::*;
+//! use futures_lite::prelude::*;
 //! use std::fs;
 //!
-//! # future::block_on(async {
+//! # futures_lite::future::block_on(async {
 //! let mut dir = Unblock::new(fs::read_dir(".")?);
 //! while let Some(item) = dir.next().await {
 //!     println!("{}", item?.file_name().to_string_lossy());
 //! }
-//! # io::Result::Ok(()) });
+//! # std::io::Result::Ok(()) });
 //! ```
 //!
 //! Spawn a process:
@@ -92,7 +91,7 @@ use std::time::Duration;
 use async_channel::{bounded, Receiver};
 use async_task::{Runnable, Task};
 use atomic_waker::AtomicWaker;
-use futures_lite::*;
+use futures_lite::{future, prelude::*, ready};
 use once_cell::sync::Lazy;
 
 /// Lazily initialized global executor.
@@ -296,7 +295,7 @@ where
 ///
 /// ```
 /// use blocking::Unblock;
-/// use futures_lite::*;
+/// use futures_lite::prelude::*;
 ///
 /// # futures_lite::future::block_on(async {
 /// let mut stdout = Unblock::new(std::io::stdout());
@@ -445,7 +444,7 @@ impl<T> Unblock<T> {
     ///
     /// ```no_run
     /// use blocking::{unblock, Unblock};
-    /// use futures_lite::*;
+    /// use futures_lite::prelude::*;
     /// use std::fs::File;
     ///
     /// # futures_lite::future::block_on(async {

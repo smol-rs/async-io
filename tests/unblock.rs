@@ -4,7 +4,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use blocking::{unblock, Unblock};
-use futures_lite::*;
+use futures_lite::{future, pin, prelude::*};
 
 #[test]
 fn sleep() {

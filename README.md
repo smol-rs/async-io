@@ -34,7 +34,6 @@ Read the contents of a file:
 
 ```rust
 use blocking::unblock;
-use futures_lite::*;
 use std::fs;
 
 let contents = unblock(|| fs::read_to_string("file.txt")).await?;
@@ -45,7 +44,7 @@ Read a file and pipe its contents to stdout:
 
 ```rust
 use blocking::{unblock, Unblock};
-use futures_lite::*;
+use futures_lite::io;
 use std::fs::File;
 
 let input = unblock(|| File::open("file.txt")).await?;
@@ -59,7 +58,7 @@ Iterate over the contents of a directory:
 
 ```rust
 use blocking::Unblock;
-use futures_lite::*;
+use futures_lite::prelude::*;
 use std::fs;
 
 let mut dir = Unblock::new(fs::read_dir(".")?);
