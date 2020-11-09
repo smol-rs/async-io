@@ -1,3 +1,7 @@
+# Version 1.2.0
+
+- Add `Async::poll_readable()` and `Async::poll_writable()`.
+
 # Version 1.1.10
 
 - Update `futures-lite`.
