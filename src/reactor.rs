@@ -8,7 +8,7 @@ use std::os::windows::io::RawSocket;
 use std::panic;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::task::{Poll, Waker};
+use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use concurrent_queue::ConcurrentQueue;
@@ -353,10 +353,15 @@ struct Direction {
     /// Last reactor tick that delivered an event.
     tick: usize,
 
-    /// Waker stored by `AsyncRead` or `AsyncWrite`.
+    /// Ticks remembered by `Async::poll_readable()` or `Async::poll_writable()`.
+    ticks: Option<(usize, usize)>,
+
+    /// Waker stored by `Async::poll_readable()` or `Async::poll_writable()`.
     waker: Option<Waker>,
 
     /// Wakers of tasks waiting for the next event.
+    ///
+    /// Registered by `Async::readable()` and `Async::writable()`.
     wakers: Arena<Option<Waker>>,
 }
 
@@ -380,45 +385,45 @@ impl Direction {
 }
 
 impl Source {
-    /// Registers a waker from `AsyncRead`.
+    /// Polls the I/O source for readability.
+    pub(crate) fn poll_readable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.poll_ready(READ, cx)
+    }
+
+    /// Polls the I/O source for writability.
+    pub(crate) fn poll_writable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        self.poll_ready(WRITE, cx)
+    }
+
+    /// Registers a waker from `poll_readable()` or `poll_writable()`.
     ///
     /// If a different waker is already registered, it gets replaced and woken.
-    pub(crate) fn register_reader(&self, waker: &Waker) -> io::Result<()> {
-        self.register(READ, waker)
-    }
-
-    /// Registers a waker from `AsyncWrite`.
-    ///
-    /// If a different waker is already registered, it gets replaced and woken.
-    pub(crate) fn register_writer(&self, waker: &Waker) -> io::Result<()> {
-        self.register(WRITE, waker)
-    }
-
-    /// Waits until the I/O source is readable.
-    pub(crate) async fn readable(&self) -> io::Result<()> {
-        self.ready(READ).await
-    }
-
-    /// Waits until the I/O source is writable.
-    pub(crate) async fn writable(&self) -> io::Result<()> {
-        self.ready(WRITE).await
-    }
-
-    /// Registers a waker from `AsyncRead` or `AsyncWrite`.
-    ///
-    /// If a different waker is already registered, it gets replaced and woken.
-    fn register(&self, dir: usize, waker: &Waker) -> io::Result<()> {
+    fn poll_ready(&self, dir: usize, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         let mut state = self.state.lock().unwrap();
+
+        // Check if the reactor has delivered an event.
+        if let Some((a, b)) = state[dir].ticks {
+            // If `state[dir].tick` has changed to a value other than the old reactor tick,
+            // that means a newer reactor tick has delivered an event.
+            if state[dir].tick != a && state[dir].tick != b {
+                state[dir].ticks = None;
+                return Poll::Ready(Ok(()));
+            }
+        }
+
         let was_empty = state[dir].is_empty();
 
+        // Register the current task's waker.
         if let Some(w) = state[dir].waker.take() {
-            if w.will_wake(waker) {
+            if w.will_wake(cx.waker()) {
                 state[dir].waker = Some(w);
-                return Ok(());
+                return Poll::Pending;
             }
+            // Wake the previous waker because it's going to get replaced.
             panic::catch_unwind(|| w.wake()).ok();
         }
-        state[dir].waker = Some(waker.clone());
+        state[dir].waker = Some(cx.waker().clone());
+        state[dir].ticks = Some((Reactor::get().ticker(), state[dir].tick));
 
         // Update interest in this I/O handle.
         if was_empty {
@@ -432,6 +437,20 @@ impl Source {
             )?;
         }
 
+        Poll::Pending
+    }
+
+    /// Waits until the I/O source is readable.
+    pub(crate) async fn readable(&self) -> io::Result<()> {
+        self.ready(READ).await?;
+        log::trace!("readable: fd={}", self.raw);
+        Ok(())
+    }
+
+    /// Waits until the I/O source is writable.
+    pub(crate) async fn writable(&self) -> io::Result<()> {
+        self.ready(WRITE).await?;
+        log::trace!("writable: fd={}", self.raw);
         Ok(())
     }
 
@@ -444,12 +463,11 @@ impl Source {
         future::poll_fn(|cx| {
             let mut state = self.state.lock().unwrap();
 
-            // Check if the reactor has delivered a readability event.
+            // Check if the reactor has delivered an event.
             if let Some((a, b)) = ticks {
-                // If `state.read.tick` has changed to a value other than the old reactor tick,
-                // that means a newer reactor tick has delivered a readability event.
+                // If `state[dir].tick` has changed to a value other than the old reactor tick,
+                // that means a newer reactor tick has delivered an event.
                 if state[dir].tick != a && state[dir].tick != b {
-                    log::trace!("readable: fd={}", self.raw);
                     return Poll::Ready(Ok(()));
                 }
             }
@@ -466,6 +484,7 @@ impl Source {
                         state[dir].wakers.remove(i);
                     }));
                     index = Some(i);
+                    ticks = Some((Reactor::get().ticker(), state[dir].tick));
                     i
                 }
             };
@@ -481,11 +500,6 @@ impl Source {
                         writable: !state[WRITE].is_empty(),
                     },
                 )?;
-            }
-
-            // Remember the current ticks.
-            if ticks.is_none() {
-                ticks = Some((Reactor::get().ticker(), state[dir].tick));
             }
 
             Poll::Pending
