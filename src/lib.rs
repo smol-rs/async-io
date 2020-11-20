@@ -127,6 +127,9 @@ pub struct Timer {
 
     /// When this timer fires.
     when: Instant,
+
+    /// The period.
+    period: Option<Duration>,
 }
 
 impl Timer {
@@ -164,6 +167,7 @@ impl Timer {
         Timer {
             id_and_waker: None,
             when: instant,
+            period: None,
         }
     }
 
@@ -222,6 +226,47 @@ impl Timer {
             *id = Reactor::get().insert_timer(self.when, waker);
         }
     }
+
+    /// Creates a timer that ticks every period.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use futures_lite::StreamExt;
+    /// use std::time::{Duration, Instant};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let period = Duration::from_secs(1);
+    /// Timer::interval(period).next().await;
+    /// # });
+    /// ```
+    pub fn interval(period: Duration) -> Timer {
+        Timer::interval_at(Instant::now(), period)
+    }
+
+    /// Creates a timer that ticks every period, starting at `start`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use futures_lite::StreamExt;
+    /// use std::time::{Duration, Instant};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let now = Instant::now();
+    /// let period = Duration::from_secs(1);
+    /// Timer::interval_at(now, period).next().await;
+    /// # });
+    /// ```
+    pub fn interval_at(start: Instant, period: Duration) -> Timer {
+        Timer {
+            id_and_waker: None,
+            when: start,
+            period: Some(period),
+        }
+    }
 }
 
 impl Drop for Timer {
@@ -262,6 +307,48 @@ impl Future for Timer {
                 Some(_) => {}
             }
             Poll::Pending
+        }
+    }
+}
+
+impl Stream for Timer {
+    type Item = Instant;
+
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        if let Some(period) = self.period {
+            // Check if the timer has already fired.
+            if Instant::now() >= self.when {
+                if let Some((id, _)) = self.id_and_waker.take() {
+                    // Deregister the timer from the reactor.
+                    Reactor::get().remove_timer(self.when, id);
+                }
+                let when = self.when;
+                self.when += period;
+                // Register the timer in the reactor.
+                let id = Reactor::get().insert_timer(self.when, cx.waker());
+                self.id_and_waker = Some((id, cx.waker().clone()));
+                return Poll::Ready(Some(when));
+            } else {
+                match &self.id_and_waker {
+                    None => {
+                        // Register the timer in the reactor.
+                        let id = Reactor::get().insert_timer(self.when, cx.waker());
+                        self.id_and_waker = Some((id, cx.waker().clone()));
+                    }
+                    Some((id, w)) if !w.will_wake(cx.waker()) => {
+                        // Deregister the timer from the reactor to remove the old waker.
+                        Reactor::get().remove_timer(self.when, *id);
+
+                        // Register the timer in the reactor with the new waker.
+                        let id = Reactor::get().insert_timer(self.when, cx.waker());
+                        self.id_and_waker = Some((id, cx.waker().clone()));
+                    }
+                    Some(_) => {}
+                }
+            }
+            Poll::Pending
+        } else {
+            Poll::Ready(None)
         }
     }
 }
