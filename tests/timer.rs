@@ -5,7 +5,7 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use async_io::Timer;
-use futures_lite::{future, FutureExt};
+use futures_lite::{future, FutureExt, StreamExt};
 
 fn spawn<T: Send + 'static>(
     f: impl Future<Output = T> + Send + 'static,
@@ -27,6 +27,20 @@ fn smoke() {
         let start = Instant::now();
         Timer::after(Duration::from_secs(1)).await;
         assert!(start.elapsed() >= Duration::from_secs(1));
+    });
+}
+
+#[test]
+fn interval() {
+    future::block_on(async {
+        let start = Instant::now();
+        let mut timer = Timer::interval(Duration::from_secs(1));
+        // first tick is immediate
+        timer.next().await;
+        timer.next().await;
+        assert!(start.elapsed() >= Duration::from_secs(1));
+        timer.next().await;
+        assert!(start.elapsed() >= Duration::from_secs(2));
     });
 }
 
