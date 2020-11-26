@@ -34,7 +34,7 @@ fn smoke() {
 fn interval() {
     future::block_on(async {
         let period = Duration::from_secs(1);
-        let jitter = Duration::from_millis(100);
+        let jitter = Duration::from_millis(500);
         let start = Instant::now();
         let mut timer = Timer::interval(period);
         timer.next().await;
