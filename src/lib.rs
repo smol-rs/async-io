@@ -244,7 +244,7 @@ impl Timer {
     /// # });
     /// ```
     pub fn interval(period: Duration) -> Timer {
-        Timer::interval_at(Instant::now(), period)
+        Timer::interval_at(Instant::now() + period, period)
     }
 
     /// Creates a timer that ticks every period, starting at `start`.

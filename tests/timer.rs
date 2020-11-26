@@ -33,14 +33,16 @@ fn smoke() {
 #[test]
 fn interval() {
     future::block_on(async {
+        let period = Duration::from_secs(1);
+        let jitter = Duration::from_millis(100);
         let start = Instant::now();
-        let mut timer = Timer::interval(Duration::from_secs(1));
-        // first tick is immediate
+        let mut timer = Timer::interval(period);
         timer.next().await;
+        let elapsed = start.elapsed();
+        assert!(elapsed >= period && elapsed - period < jitter);
         timer.next().await;
-        assert!(start.elapsed() >= Duration::from_secs(1));
-        timer.next().await;
-        assert!(start.elapsed() >= Duration::from_secs(2));
+        let elapsed = start.elapsed();
+        assert!(elapsed >= period * 2 && elapsed - period * 2 < jitter);
     });
 }
 
