@@ -4,7 +4,7 @@
 //!
 //! * [`Async`], an adapter for standard networking types (and [many other] types) to use in
 //!   async programs.
-//! * [`Timer`], a future that expires at a point in time.
+//! * [`Timer`], a future or stream that emits timed events.
 //!
 //! For concrete async networking types built on top of this crate, see [`async-net`].
 //!
@@ -85,14 +85,16 @@ mod reactor;
 
 pub use driver::block_on;
 
-/// Use Duration::MAX once duration_constants are stabilized.
+/// Use `Duration::MAX` once `duration_constants` are stabilized.
 fn duration_max() -> Duration {
     Duration::new(u64::MAX, 1_000_000_000 - 1)
 }
 
-/// A future that expires at a point in time.
+/// A future or stream that emits timed events.
 ///
-/// Timers are futures that output the [`Instant`] at which they fired.
+/// Timers are futures that output a single [`Instant`] when they fire.
+///
+/// Timers are also streams that can output [`Instant`]s periodically.
 ///
 /// # Examples
 ///
@@ -130,7 +132,7 @@ pub struct Timer {
     /// When this field is set to `None`, this timer is not registered in the reactor.
     id_and_waker: Option<(usize, Waker)>,
 
-    /// When this timer fires.
+    /// The next instant at which this timer fires.
     when: Instant,
 
     /// The period.
@@ -138,7 +140,7 @@ pub struct Timer {
 }
 
 impl Timer {
-    /// Creates a timer that expires after the given duration of time.
+    /// Creates a timer that emits an event once after the given duration of time.
     ///
     /// # Examples
     ///
@@ -154,7 +156,7 @@ impl Timer {
         Timer::at(Instant::now() + duration)
     }
 
-    /// Creates a timer that expires at the given time instant.
+    /// Creates a timer that emits an event once at the given time instant.
     ///
     /// # Examples
     ///
@@ -173,7 +175,48 @@ impl Timer {
         Timer::interval_at(instant, duration_max())
     }
 
-    /// Sets the timer to expire after the new duration of time.
+    /// Creates a timer that emits events periodically.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use futures_lite::StreamExt;
+    /// use std::time::{Duration, Instant};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let period = Duration::from_secs(1);
+    /// Timer::interval(period).next().await;
+    /// # });
+    /// ```
+    pub fn interval(period: Duration) -> Timer {
+        Timer::interval_at(Instant::now() + period, period)
+    }
+
+    /// Creates a timer that emits events periodically, starting at `start`.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use futures_lite::StreamExt;
+    /// use std::time::{Duration, Instant};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let start = Instant::now();
+    /// let period = Duration::from_secs(1);
+    /// Timer::interval_at(start, period).next().await;
+    /// # });
+    /// ```
+    pub fn interval_at(start: Instant, period: Duration) -> Timer {
+        Timer {
+            id_and_waker: None,
+            when: start,
+            period,
+        }
+    }
+
+    /// Sets the timer to emit an en event once after the given duration of time.
     ///
     /// Note that resetting a timer is different from creating a new timer because
     /// [`set_after()`][`Timer::set_after()`] does not remove the waker associated with the task
@@ -194,10 +237,10 @@ impl Timer {
         self.set_at(Instant::now() + duration);
     }
 
-    /// Sets the timer to expire at the new time instant.
+    /// Sets the timer to emit an event once at the given time instant.
     ///
     /// Note that resetting a timer is different from creating a new timer because
-    /// [`set_after()`][`Timer::set_after()`] does not remove the waker associated with the task
+    /// [`set_at()`][`Timer::set_at()`] does not remove the waker associated with the task
     /// that is polling the timer.
     ///
     /// # Examples
@@ -229,7 +272,11 @@ impl Timer {
         }
     }
 
-    /// Creates a timer that ticks every period.
+    /// Sets the timer to emit events periodically.
+    ///
+    /// Note that resetting a timer is different from creating a new timer because
+    /// [`set_interval()`][`Timer::set_interval()`] does not remove the waker associated with the
+    /// task that is polling the timer.
     ///
     /// # Examples
     ///
@@ -239,15 +286,21 @@ impl Timer {
     /// use std::time::{Duration, Instant};
     ///
     /// # futures_lite::future::block_on(async {
-    /// let period = Duration::from_secs(1);
-    /// Timer::interval(period).next().await;
+    /// let mut t = Timer::after(Duration::from_secs(1));
+    ///
+    /// let period = Duration::from_secs(2);
+    /// t.set_interval(period);
     /// # });
     /// ```
-    pub fn interval(period: Duration) -> Timer {
-        Timer::interval_at(Instant::now() + period, period)
+    pub fn set_interval(&mut self, period: Duration) {
+        self.set_interval_at(Instant::now() + period, period);
     }
 
-    /// Creates a timer that ticks every period, starting at `start`.
+    /// Sets the timer to emit events periodically, starting at `start`.
+    ///
+    /// Note that resetting a timer is different from creating a new timer because
+    /// [`set_interval_at()`][`Timer::set_interval_at()`] does not remove the waker associated with
+    /// the task that is polling the timer.
     ///
     /// # Examples
     ///
@@ -257,16 +310,25 @@ impl Timer {
     /// use std::time::{Duration, Instant};
     ///
     /// # futures_lite::future::block_on(async {
-    /// let now = Instant::now();
-    /// let period = Duration::from_secs(1);
-    /// Timer::interval_at(now, period).next().await;
+    /// let mut t = Timer::after(Duration::from_secs(1));
+    ///
+    /// let start = Instant::now();
+    /// let period = Duration::from_secs(2);
+    /// t.set_interval_at(start, period);
     /// # });
     /// ```
-    pub fn interval_at(start: Instant, period: Duration) -> Timer {
-        Timer {
-            id_and_waker: None,
-            when: start,
-            period: period,
+    pub fn set_interval_at(&mut self, start: Instant, period: Duration) {
+        if let Some((id, _)) = self.id_and_waker.as_ref() {
+            // Deregister the timer from the reactor.
+            Reactor::get().remove_timer(self.when, *id);
+        }
+
+        self.when = start;
+        self.period = period;
+
+        if let Some((id, waker)) = self.id_and_waker.as_mut() {
+            // Re-register the timer with the new timeout.
+            *id = Reactor::get().insert_timer(self.when, waker);
         }
     }
 }
