@@ -1,3 +1,9 @@
+# Version 1.3.0
+
+- Add `Timer::interval()` and `Timer::set_interval()`.
+- Add `Timer::interval_at()` and `Timer::set_interval_at()`.
+- Implement `Stream` for `Timer`.
+
 # Version 1.2.0
 
 - Add `Async::poll_readable()` and `Async::poll_writable()`.
