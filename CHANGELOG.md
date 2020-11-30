@@ -1,3 +1,7 @@
+# Version 1.3.1
+
+- Lower MSRV to 1.41.0
+
 # Version 1.3.0
 
 - Add `Timer::interval()` and `Timer::set_interval()`.
