@@ -87,7 +87,7 @@ pub use driver::block_on;
 
 /// Use `Duration::MAX` once `duration_constants` are stabilized.
 fn duration_max() -> Duration {
-    Duration::new(u64::MAX, 1_000_000_000 - 1)
+    Duration::new(std::u64::MAX, 1_000_000_000 - 1)
 }
 
 /// A future or stream that emits timed events.
