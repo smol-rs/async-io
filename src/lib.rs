@@ -915,6 +915,18 @@ impl<T> Async<T> {
     }
 }
 
+impl<T> AsRef<T> for Async<T> {
+    fn as_ref(&self) -> &T {
+        self.get_ref()
+    }
+}
+
+impl<T> AsMut<T> for Async<T> {
+    fn as_mut(&mut self) -> &mut T {
+        self.get_mut()
+    }
+}
+
 impl<T> Drop for Async<T> {
     fn drop(&mut self) {
         if self.io.is_some() {
