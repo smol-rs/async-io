@@ -260,8 +260,8 @@ where
 /// For higher-level primitives built on top of [`Unblock`], look into [`async-fs`] or
 /// [`async-process`] (on Windows).
 ///
-/// [`async-fs`]: https://github.com/stjepang/async-fs
-/// [`async-process`]: https://github.com/stjepang/async-process
+/// [`async-fs`]: https://github.com/smol-rs/async-fs
+/// [`async-process`]: https://github.com/smol-rs/async-process
 ///
 /// [`Unblock`] communicates with I/O operations on the thread pool through a pipe. That means an
 /// async read/write operation simply receives/sends some bytes from/into the pipe. When in reading
