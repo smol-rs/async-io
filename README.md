@@ -1,9 +1,9 @@
 # async-io
 
-[![Build](https://github.com/stjepang/async-io/workflows/Build%20and%20test/badge.svg)](
-https://github.com/stjepang/async-io/actions)
+[![Build](https://github.com/smol-rs/async-io/workflows/Build%20and%20test/badge.svg)](
+https://github.com/smol-rs/async-io/actions)
 [![License](https://img.shields.io/badge/license-MIT%2FApache--2.0-blue.svg)](
-https://github.com/stjepang/async-io)
+https://github.com/smol-rs/async-io)
 [![Cargo](https://img.shields.io/crates/v/async-io.svg)](
 https://crates.io/crates/async-io)
 [![Documentation](https://docs.rs/async-io/badge.svg)](
@@ -19,7 +19,7 @@ This crate provides two tools:
 
 For concrete async networking types built on top of this crate, see [`async-net`].
 
-[many other]: https://github.com/stjepang/async-io/tree/master/examples
+[many other]: https://github.com/smol-rs/async-io/tree/master/examples
 [`async-net`]: https://docs.rs/async-net
 
 ## Implementation
