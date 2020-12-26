@@ -8,7 +8,7 @@
 //!
 //! For concrete async networking types built on top of this crate, see [`async-net`].
 //!
-//! [many other]: https://github.com/stjepang/async-io/tree/master/examples
+//! [many other]: https://github.com/smol-rs/async-io/tree/master/examples
 //! [`async-net`]: https://docs.rs/async-net
 //!
 //! # Implementation
@@ -411,8 +411,8 @@ impl Stream for Timer {
 /// For higher-level primitives built on top of [`Async`], look into [`async-net`] or
 /// [`async-process`] (on Unix).
 ///
-/// [`async-net`]: https://github.com/stjepang/async-net
-/// [`async-process`]: https://github.com/stjepang/async-process
+/// [`async-net`]: https://github.com/smol-rs/async-net
+/// [`async-process`]: https://github.com/smol-rs/async-process
 ///
 /// ### Supported types
 ///
@@ -423,8 +423,8 @@ impl Stream for Timer {
 /// [`Stdin`][`std::io::Stdin`], [`Stdout`][`std::io::Stdout`], or [`Stderr`][`std::io::Stderr`]
 /// because all operating systems have issues with them when put in non-blocking mode.
 ///
-/// [timerfd]: https://github.com/stjepang/async-io/blob/master/examples/linux-timerfd.rs
-/// [inotify]: https://github.com/stjepang/async-io/blob/master/examples/linux-inotify.rs
+/// [timerfd]: https://github.com/smol-rs/async-io/blob/master/examples/linux-timerfd.rs
+/// [inotify]: https://github.com/smol-rs/async-io/blob/master/examples/linux-inotify.rs
 ///
 /// ### Concurrent I/O
 ///
