@@ -10,7 +10,6 @@ homepage = "https://github.com/smol-rs/async-io"
 documentation = "https://docs.rs/async-io"
 keywords = ["mio", "epoll", "kqueue", "iocp", "wepoll"]
 categories = ["asynchronous", "network-programming", "os"]
-readme = "README.md"
 
 [dependencies]
 concurrent-queue = "1.2.2"
