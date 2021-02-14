@@ -10,7 +10,6 @@ homepage = "https://github.com/smol-rs/blocking"
 documentation = "https://docs.rs/blocking"
 keywords = ["async", "file", "stdio", "stdin", "process"]
 categories = ["asynchronous", "concurrency"]
-readme = "README.md"
 
 [dependencies]
 async-channel = "1.4.0"
