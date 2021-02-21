@@ -491,7 +491,7 @@ pub struct Async<T> {
     source: Arc<Source>,
 
     /// The inner I/O handle.
-    io: Option<T>,
+    io: T,
 }
 
 impl<T> Unpin for Async<T> {}
@@ -597,7 +597,7 @@ impl<T: AsRawSocket> Async<T> {
 
         Ok(Async {
             source: Reactor::get().insert_io(sock)?,
-            io: Some(io),
+            io,
         })
     }
 }
@@ -624,7 +624,7 @@ impl<T> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn get_ref(&self) -> &T {
-        self.io.as_ref().unwrap()
+        &self.io
     }
 
     /// Gets a mutable reference to the inner I/O handle.
@@ -641,7 +641,7 @@ impl<T> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn get_mut(&mut self) -> &mut T {
-        self.io.as_mut().unwrap()
+        &mut self.io
     }
 
     /// Unwraps the inner I/O handle.
@@ -663,9 +663,9 @@ impl<T> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn into_inner(mut self) -> io::Result<T> {
-        let io = self.io.take().unwrap();
         Reactor::get().remove_io(&self.source)?;
-        Ok(io)
+        let mut this = core::mem::ManuallyDrop::new(self);
+        Ok(unsafe { core::ptr::read(&this.io) })
     }
 
     /// Waits until the I/O handle is readable.
@@ -929,13 +929,8 @@ impl<T> AsMut<T> for Async<T> {
 
 impl<T> Drop for Async<T> {
     fn drop(&mut self) {
-        if self.io.is_some() {
-            // Deregister and ignore errors because destructors should not panic.
-            Reactor::get().remove_io(&self.source).ok();
-
-            // Drop the I/O handle to close it.
-            self.io.take();
-        }
+        // Deregister and ignore errors because destructors should not panic.
+        Reactor::get().remove_io(&self.source).ok();
     }
 }
 
