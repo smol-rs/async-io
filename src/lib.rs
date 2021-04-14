@@ -77,6 +77,7 @@ use std::os::windows::io::{AsRawSocket, RawSocket};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
 use futures_lite::{future, pin, ready};
+use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
 use crate::reactor::{Reactor, Source};
 
@@ -1190,7 +1191,10 @@ impl Async<TcpStream> {
     /// ```
     pub async fn connect<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<TcpStream>> {
         // Begin async connect.
-        let stream = Async::new(nb_connect::tcp(addr)?)?;
+        let addr = addr.into();
+        let domain = Domain::for_address(addr);
+        let socket = connect(addr.into(), domain, Some(Protocol::TCP))?;
+        let stream = Async::new(TcpStream::from(socket))?;
 
         // The stream becomes writable when connected.
         stream.writable().await?;
@@ -1518,7 +1522,8 @@ impl Async<UnixStream> {
     /// ```
     pub async fn connect<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixStream>> {
         // Begin async connect.
-        let stream = Async::new(nb_connect::unix(path)?)?;
+        let socket = connect(SockAddr::unix(path)?, Domain::UNIX, None)?;
+        let stream = Async::new(UnixStream::from(socket))?;
 
         // The stream becomes writable when connected.
         stream.writable().await?;
@@ -1725,4 +1730,42 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
         }
     })
     .await
+}
+
+fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Result<Socket> {
+    let sock_type = Type::STREAM;
+    #[cfg(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    ))]
+    // If we can, set nonblocking at socket creation for unix
+    let sock_type = sock_type.nonblocking();
+    // This automatically handles cloexec on unix, no_inherit on windows and nosigpipe on macos
+    let socket = Socket::new(domain, sock_type, protocol)?;
+    #[cfg(not(any(
+        target_os = "android",
+        target_os = "dragonfly",
+        target_os = "freebsd",
+        target_os = "fuchsia",
+        target_os = "illumos",
+        target_os = "linux",
+        target_os = "netbsd",
+        target_os = "openbsd"
+    )))]
+    // If the current platform doesn't support nonblocking at creation, enable it after creation
+    socket.set_nonblocking(true)?;
+    match socket.connect(&addr) {
+        Ok(_) => {}
+        #[cfg(unix)]
+        Err(err) if err.raw_os_error() == Some(libc::EINPROGRESS) => {}
+        Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+        Err(err) => return Err(err),
+    }
+    Ok(socket)
 }
