@@ -63,6 +63,7 @@ impl Reactor {
     /// Returns a reference to the reactor.
     pub(crate) fn get() -> &'static Reactor {
         static REACTOR: Lazy<Reactor> = Lazy::new(|| {
+            #[cfg(feature = "driver")]
             crate::driver::init();
             Reactor {
                 poller: Poller::new().expect("cannot initialize I/O event notification"),
@@ -158,6 +159,7 @@ impl Reactor {
     }
 
     /// Locks the reactor, potentially blocking if the lock is held by another thread.
+    #[allow(dead_code)]
     pub(crate) fn lock(&self) -> ReactorLock<'_> {
         let reactor = self;
         let events = self.events.lock().unwrap();

@@ -81,10 +81,12 @@ use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
 use crate::reactor::{Reactor, Source};
 
+mod block_on;
+#[cfg(feature = "driver")]
 mod driver;
 mod reactor;
 
-pub use driver::block_on;
+pub use block_on::block_on;
 
 /// Use `Duration::MAX` once `duration_constants` are stabilized.
 fn duration_max() -> Duration {
