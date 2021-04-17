@@ -1112,7 +1112,7 @@ impl Async<TcpListener> {
     /// ```
     pub fn bind<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<TcpListener>> {
         let addr = addr.into();
-        Ok(Async::new(TcpListener::bind(addr)?)?)
+        Async::new(TcpListener::bind(addr)?)
     }
 
     /// Accepts a new incoming TCP connection.
@@ -1260,7 +1260,7 @@ impl Async<UdpSocket> {
     /// ```
     pub fn bind<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<UdpSocket>> {
         let addr = addr.into();
-        Ok(Async::new(UdpSocket::bind(addr)?)?)
+        Async::new(UdpSocket::bind(addr)?)
     }
 
     /// Receives a single datagram message.
@@ -1442,7 +1442,7 @@ impl Async<UnixListener> {
     /// ```
     pub fn bind<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixListener>> {
         let path = path.as_ref().to_owned();
-        Ok(Async::new(UnixListener::bind(path)?)?)
+        Async::new(UnixListener::bind(path)?)
     }
 
     /// Accepts a new incoming UDS stream connection.
@@ -1577,7 +1577,7 @@ impl Async<UnixDatagram> {
     /// ```
     pub fn bind<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixDatagram>> {
         let path = path.as_ref().to_owned();
-        Ok(Async::new(UnixDatagram::bind(path)?)?)
+        Async::new(UnixDatagram::bind(path)?)
     }
 
     /// Creates a UDS datagram socket not bound to any address.
@@ -1593,7 +1593,7 @@ impl Async<UnixDatagram> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn unbound() -> io::Result<Async<UnixDatagram>> {
-        Ok(Async::new(UnixDatagram::unbound()?)?)
+        Async::new(UnixDatagram::unbound()?)
     }
 
     /// Creates an unnamed pair of connected Unix datagram sockets.
