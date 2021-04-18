@@ -22,8 +22,8 @@ log = "0.4.11"
 once_cell = "1.4.1"
 parking = "2.0.0"
 polling = "2.0.0"
+slab = "0.4.2"
 socket2 = { version = "0.4.0", features = ["all"] }
-vec-arena = "1.0.0"
 waker-fn = "1.1.0"
 
 [target."cfg(unix)".dependencies]
