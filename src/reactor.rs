@@ -15,7 +15,7 @@ use concurrent_queue::ConcurrentQueue;
 use futures_lite::future;
 use once_cell::sync::Lazy;
 use polling::{Event, Poller};
-use vec_arena::Arena;
+use slab::Slab;
 
 const READ: usize = 0;
 const WRITE: usize = 1;
@@ -38,7 +38,7 @@ pub(crate) struct Reactor {
     ticker: AtomicUsize,
 
     /// Registered sources.
-    sources: Mutex<Arena<Arc<Source>>>,
+    sources: Mutex<Slab<Arc<Source>>>,
 
     /// Temporary storage for I/O events when polling the reactor.
     ///
@@ -67,7 +67,7 @@ impl Reactor {
             Reactor {
                 poller: Poller::new().expect("cannot initialize I/O event notification"),
                 ticker: AtomicUsize::new(0),
-                sources: Mutex::new(Arena::new()),
+                sources: Mutex::new(Slab::new()),
                 events: Mutex::new(Vec::new()),
                 timers: Mutex::new(BTreeMap::new()),
                 timer_ops: ConcurrentQueue::bounded(1000),
@@ -90,7 +90,7 @@ impl Reactor {
         // Create an I/O source for this file descriptor.
         let source = {
             let mut sources = self.sources.lock().unwrap();
-            let key = sources.next_vacant();
+            let key = sources.vacant_entry().key();
             let source = Arc::new(Source {
                 raw,
                 key,
@@ -362,7 +362,7 @@ struct Direction {
     /// Wakers of tasks waiting for the next event.
     ///
     /// Registered by `Async::readable()` and `Async::writable()`.
-    wakers: Arena<Option<Waker>>,
+    wakers: Slab<Option<Waker>>,
 }
 
 impl Direction {
