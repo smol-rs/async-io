@@ -1,3 +1,7 @@
+# Version 1.4.1
+
+- Remove dependency on deprecated `vec-arena`. (#60)
+
 # Version 1.4.0
 
 - Implement `AsRef<T>` and `AsMut<T>` for `Async<T>`. (#44)
