@@ -1,3 +1,7 @@
+# Version 1.5.0
+
+- Add `Readable` and `Writable` futures. (#64)
+
 # Version 1.4.1
 
 - Remove dependency on deprecated `vec-arena`. (#60)
