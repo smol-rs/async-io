@@ -3,7 +3,7 @@ name = "async-io"
 # When publishing a new version:
 # - Update CHANGELOG.md
 # - Create "v1.x.y" git tag
-version = "1.4.1"
+version = "1.5.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 description = "Async I/O and timers"
