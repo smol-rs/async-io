@@ -85,6 +85,7 @@ mod driver;
 mod reactor;
 
 pub use driver::block_on;
+pub use reactor::{Readable, Writable};
 
 /// Use `Duration::MAX` once `duration_constants` are stabilized.
 fn duration_max() -> Duration {
@@ -686,8 +687,8 @@ impl<T> Async<T> {
     /// listener.readable().await?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub async fn readable(&self) -> io::Result<()> {
-        self.source.readable().await
+    pub fn readable(&self) -> Readable {
+        self.source.readable()
     }
 
     /// Waits until the I/O handle is writable.
@@ -708,8 +709,8 @@ impl<T> Async<T> {
     /// stream.writable().await?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub async fn writable(&self) -> io::Result<()> {
-        self.source.writable().await
+    pub fn writable(&self) -> Writable {
+        self.source.writable()
     }
 
     /// Polls the I/O handle for readability.
