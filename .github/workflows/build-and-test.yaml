@@ -13,59 +13,32 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [nightly, beta, stable, 1.39.0]
+        rust: [nightly, beta, stable]
     steps:
       - uses: actions/checkout@v2
-
-      - name: Install latest ${{ matrix.rust }}
-        uses: actions-rs/toolchain@v1
-        with:
-            toolchain: ${{ matrix.rust }}
-            profile: minimal
-            override: true
-
-      - name: Run basic cargo check
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --bins --all-features
-
-      - name: Run cargo check
-        if: startsWith(matrix.rust, '1.39.0') == false
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: --all --benches --bins --examples --tests --all-features
-
+      - name: Install Rust
+        # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
+        run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
+      - run: cargo build --all --all-features --all-targets
       - name: Run cargo check (without dev-dependencies to catch missing feature flags)
         if: startsWith(matrix.rust, 'nightly')
-        uses: actions-rs/cargo@v1
-        with:
-          command: check
-          args: -Z features=dev_dep
-
-      - name: Run cargo test
-        if: startsWith(matrix.rust, '1.39.0') == false
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
+        run: cargo check -Z features=dev_dep
+      - run: cargo test
 
   # Copied from: https://github.com/rust-lang/stacker/pull/19/files
   windows_gnu:
     runs-on: windows-latest
     strategy:
       matrix:
-        rust_toolchain: [nightly]
-        rust_target:
+        rust: [nightly]
+        target:
           - x86_64-pc-windows-gnu
     steps:
       - uses: actions/checkout@v1
-      - name: Install Rust nightly
-        uses: actions-rs/toolchain@v1
-        with:
-            toolchain: ${{ matrix.rust_toolchain }}
-            target: ${{ matrix.rust_target }}
-            default: true
+      - name: Install Rust
+        # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
+        run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
+      - run: rustup target add ${{ matrix.target }}
       # https://github.com/rust-lang/rust/issues/49078
       - name: Fix windows-gnu rust-mingw
         run : |
@@ -73,11 +46,16 @@ jobs:
             cp -f "/C/ProgramData/Chocolatey/lib/mingw/tools/install/mingw64/x86_64-w64-mingw32/lib/$i" "`rustc --print sysroot`/lib/rustlib/x86_64-pc-windows-gnu/lib"
           done
         shell: bash
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --target ${{ matrix.rust_target }} --all --benches --bins --examples --tests --all-features
-      - uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --target ${{ matrix.rust_target }}
+      - run: cargo build --target ${{ matrix.target }} --all --all-features --all-targets
+      - run: cargo test --target ${{ matrix.target }}
+
+  msrv:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        rust: [1.46.0]
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust
+        run: rustup update ${{ matrix.rust }} && rustup default ${{ matrix.rust }}
+      - run: cargo build

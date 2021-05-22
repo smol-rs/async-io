@@ -15,13 +15,9 @@ jobs:
         os: [ubuntu-latest, macos-latest]
 
     steps:
-    - uses: actions/checkout@master
-
-    - name: Install nightly
-      uses: actions-rs/toolchain@v1
-      with:
-        toolchain: nightly
-        override: true
+    - uses: actions/checkout@v2
+    - name: Install Rust
+      run: rustup update stable
 
     - name: Install cross
       run: cargo install cross
