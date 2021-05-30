@@ -85,7 +85,7 @@ mod driver;
 mod reactor;
 
 pub use driver::block_on;
-pub use reactor::{Readable, Writable};
+pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 
 /// Use `Duration::MAX` once `duration_constants` are stabilized.
 fn duration_max() -> Duration {
@@ -687,8 +687,15 @@ impl<T> Async<T> {
     /// listener.readable().await?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub fn readable(&self) -> Readable {
-        self.source.readable()
+    pub fn readable(&self) -> Readable<'_, T> {
+        Source::readable(self)
+    }
+
+    /// Waits until the I/O handle is readable.
+    ///
+    /// This method completes when a read operation on this I/O handle wouldn't block.
+    pub fn readable_owned(self: Arc<Self>) -> ReadableOwned<T> {
+        Source::readable_owned(self)
     }
 
     /// Waits until the I/O handle is writable.
@@ -709,8 +716,15 @@ impl<T> Async<T> {
     /// stream.writable().await?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub fn writable(&self) -> Writable {
-        self.source.writable()
+    pub fn writable(&self) -> Writable<'_, T> {
+        Source::writable(self)
+    }
+
+    /// Waits until the I/O handle is writable.
+    ///
+    /// This method completes when a write operation on this I/O handle wouldn't block.
+    pub fn writable_owned(self: Arc<Self>) -> WritableOwned<T> {
+        Source::writable_owned(self)
     }
 
     /// Polls the I/O handle for readability.
