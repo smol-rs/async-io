@@ -3,7 +3,7 @@ name = "async-io"
 # When publishing a new version:
 # - Update CHANGELOG.md
 # - Create "v1.x.y" git tag
-version = "1.5.0"
+version = "1.6.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 description = "Async I/O and timers"
@@ -16,7 +16,6 @@ categories = ["asynchronous", "network-programming", "os"]
 
 [dependencies]
 concurrent-queue = "1.2.2"
-fastrand = "1.3.5"
 futures-lite = "1.11.0"
 log = "0.4.11"
 once_cell = "1.4.1"
@@ -41,7 +40,7 @@ tempfile = "3.1.0"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 inotify = { version = "0.9", default-features = false }
-nix = "0.20"
+nix = "0.21"
 timerfd = "1.1.1"
 
 [target.'cfg(windows)'.dev-dependencies]

@@ -1,4 +1,9 @@
-# Version 1.5.0
+# Version 1.6.0
+
+- Add `Readable` and `Writable` futures. (#64, #66)
+- Add `Async::{readable_owned, writable_owned}`. (#66)
+
+# Version 1.5.0 [YANKED]
 
 - Add `Readable` and `Writable` futures. (#64)
 
@@ -86,7 +91,7 @@
 # Version 0.2.7
 
 - Replace `log::debug!` with `log::trace!`.
--
+
 # Version 0.2.6
 
 - Add logging.
