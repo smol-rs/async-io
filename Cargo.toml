@@ -16,7 +16,6 @@ categories = ["asynchronous", "network-programming", "os"]
 
 [dependencies]
 concurrent-queue = "1.2.2"
-fastrand = "1.3.5"
 futures-lite = "1.11.0"
 log = "0.4.11"
 once_cell = "1.4.1"
