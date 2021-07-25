@@ -47,6 +47,18 @@ fn interval() {
 }
 
 #[test]
+fn claim_poller() {
+    async_io::block_on(async {
+        let mut timer = Timer::interval(Duration::from_secs(1));
+        for i in 1..1000 {
+            timer.set_after(Duration::from_micros(i));
+            timer.next().await;
+        }
+        Timer::after(Duration::from_millis(1)).await;
+    });
+}
+
+#[test]
 fn poll_across_tasks() {
     future::block_on(async {
         let start = Instant::now();

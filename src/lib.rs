@@ -85,6 +85,7 @@ mod driver;
 mod reactor;
 
 pub use driver::block_on;
+pub use driver::{disable_park_thread, enable_park_thread, start_dedicated_thread};
 pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 
 /// Use `Duration::MAX` once `duration_constants` are stabilized.
