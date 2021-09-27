@@ -99,7 +99,7 @@ use once_cell::sync::Lazy;
 const DEFAULT_MAX_THREADS: usize = 500;
 
 /// Env variable that allows to override default value for max threads.
-const MAX_THREADS_ENV: &str = "MAX_THREADS";
+const MAX_THREADS_ENV: &str = "BLOCKING_MAX_THREADS";
 
 /// Lazily initialized global executor.
 static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
