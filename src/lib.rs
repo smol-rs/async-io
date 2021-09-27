@@ -102,16 +102,14 @@ const DEFAULT_MAX_THREADS: usize = 500;
 const MAX_THREADS_ENV: &str = "MAX_THREADS";
 
 /// Lazily initialized global executor.
-static EXECUTOR: Lazy<Executor> = Lazy::new(|| {
-    Executor {
-        inner: Mutex::new(Inner {
-            idle_count: 0,
-            thread_count: 0,
-            queue: VecDeque::new(),
-        }),
-        cvar: Condvar::new(),
-        thread_limit: Executor::max_threads(),
-    }
+static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
+    inner: Mutex::new(Inner {
+        idle_count: 0,
+        thread_count: 0,
+        queue: VecDeque::new(),
+    }),
+    cvar: Condvar::new(),
+    thread_limit: Executor::max_threads(),
 });
 
 /// The blocking executor.
