@@ -147,7 +147,7 @@ impl Executor {
             Ok(v) => v.parse::<usize>().unwrap_or_else(|_| DEFAULT_MAX_THREADS),
             Err(_) => DEFAULT_MAX_THREADS,
         }
-}
+    }
     /// Spawns a future onto this executor.
     ///
     /// Returns a [`Task`] handle for the spawned task.
@@ -1237,10 +1237,16 @@ mod tests {
     use super::*;
     #[test]
     fn test_max_threads() {
+        // properly set env var
         env::set_var(MAX_THREADS_ENV, "100");
         assert_eq!(100, Executor::max_threads());
 
+        // no env var, use default
         env::set_var(MAX_THREADS_ENV, "");
+        assert_eq!(500, Executor::max_threads());
+
+        // not a number, use default
+        env::set_var(MAX_THREADS_ENV, "NOTINT");
         assert_eq!(500, Executor::max_threads());
     }
 }
