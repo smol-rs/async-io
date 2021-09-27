@@ -87,6 +87,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
+use std::env;
 
 use async_channel::{bounded, Receiver};
 use async_task::{Runnable, Task};
@@ -94,14 +95,23 @@ use atomic_waker::AtomicWaker;
 use futures_lite::{future, prelude::*, ready};
 use once_cell::sync::Lazy;
 
+/// Default value for max threads that Executor can grow to
+const DEFAULT_MAX_THREADS: usize = 500;
+
+/// Env variable that allows to override default value for max threads.
+const MAX_THREADS_ENV: &str = "MAX_THREADS";
+
 /// Lazily initialized global executor.
-static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
-    inner: Mutex::new(Inner {
-        idle_count: 0,
-        thread_count: 0,
-        queue: VecDeque::new(),
-    }),
-    cvar: Condvar::new(),
+static EXECUTOR: Lazy<Executor> = Lazy::new(|| {
+    Executor {
+        inner: Mutex::new(Inner {
+            idle_count: 0,
+            thread_count: 0,
+            queue: VecDeque::new(),
+        }),
+        cvar: Condvar::new(),
+        thread_limit: Executor::max_threads(),
+    }
 });
 
 /// The blocking executor.
@@ -111,6 +121,9 @@ struct Executor {
 
     /// Used to put idle threads to sleep and wake them up when new work comes in.
     cvar: Condvar,
+
+    /// Maximum number of threads in the pool
+    thread_limit: usize,
 }
 
 /// Inner state of the blocking executor.
@@ -130,6 +143,13 @@ struct Inner {
 }
 
 impl Executor {
+
+    fn max_threads() -> usize {
+        match env::var(MAX_THREADS_ENV) {
+            Ok(v) => v.parse::<usize>().unwrap_or_else(|_| DEFAULT_MAX_THREADS),
+            Err(_) => DEFAULT_MAX_THREADS,
+        }
+}
     /// Spawns a future onto this executor.
     ///
     /// Returns a [`Task`] handle for the spawned task.
@@ -191,7 +211,7 @@ impl Executor {
     fn grow_pool(&'static self, mut inner: MutexGuard<'static, Inner>) {
         // If runnable tasks greatly outnumber idle threads and there aren't too many threads
         // already, then be aggressive: wake all idle threads and spawn one more thread.
-        while inner.queue.len() > inner.idle_count * 5 && inner.thread_count < 500 {
+        while inner.queue.len() > inner.idle_count * 5 && inner.thread_count < EXECUTOR.thread_limit {
             // The new thread starts in idle state.
             inner.idle_count += 1;
             inner.thread_count += 1;
@@ -1211,5 +1231,18 @@ fn maybe_yield(cx: &mut Context<'_>) -> Poll<()> {
         Poll::Pending
     } else {
         Poll::Ready(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_max_threads() {
+        env::set_var(MAX_THREADS_ENV, "100");
+        assert_eq!(100, Executor::max_threads());
+
+        env::set_var(MAX_THREADS_ENV, "");
+        assert_eq!(500, Executor::max_threads());
     }
 }
