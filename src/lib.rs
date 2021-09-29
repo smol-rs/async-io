@@ -151,15 +151,9 @@ impl Executor {
     fn max_threads() -> usize {
         match env::var(MAX_THREADS_ENV) {
             Ok(v) => v.parse::<usize>().map(|v| {
-                if v < MIN_MAX_THREADS {
-                    return MIN_MAX_THREADS
-                }
-                v
+                if v < MIN_MAX_THREADS { MIN_MAX_THREADS } else { v }
             }).map(|v| {
-                if v > MAX_MAX_THREADS {
-                    return MAX_MAX_THREADS
-                }
-                v
+                if v > MAX_MAX_THREADS { MAX_MAX_THREADS } else { v }
             }).unwrap_or_else(|_| DEFAULT_MAX_THREADS),
             Err(_) => DEFAULT_MAX_THREADS,
         }
