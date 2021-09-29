@@ -98,6 +98,12 @@ use once_cell::sync::Lazy;
 /// Default value for max threads that Executor can grow to
 const DEFAULT_MAX_THREADS: usize = 500;
 
+/// Minimum value for max threads config
+const MIN_MAX_THREADS: usize = 1;
+
+/// Maximum value for max threads config
+const MAX_MAX_THREADS: usize = 10000;
+
 /// Env variable that allows to override default value for max threads.
 const MAX_THREADS_ENV: &str = "BLOCKING_MAX_THREADS";
 
@@ -144,7 +150,17 @@ impl Executor {
 
     fn max_threads() -> usize {
         match env::var(MAX_THREADS_ENV) {
-            Ok(v) => v.parse::<usize>().unwrap_or_else(|_| DEFAULT_MAX_THREADS),
+            Ok(v) => v.parse::<usize>().map(|v| {
+                if v < MIN_MAX_THREADS {
+                    return MIN_MAX_THREADS
+                }
+                v
+            }).map(|v| {
+                if v > MAX_MAX_THREADS {
+                    return MAX_MAX_THREADS
+                }
+                v
+            }).unwrap_or_else(|_| DEFAULT_MAX_THREADS),
             Err(_) => DEFAULT_MAX_THREADS,
         }
     }
@@ -1240,6 +1256,14 @@ mod tests {
         // properly set env var
         env::set_var(MAX_THREADS_ENV, "100");
         assert_eq!(100, Executor::max_threads());
+
+        // passed value below minimum, so we set it to minimum
+        env::set_var(MAX_THREADS_ENV, "0");
+        assert_eq!(1, Executor::max_threads());
+
+        // passed value above maximum, so we set to allowed maximum
+        env::set_var(MAX_THREADS_ENV, "50000");
+        assert_eq!(10000, Executor::max_threads());
 
         // no env var, use default
         env::set_var(MAX_THREADS_ENV, "");
