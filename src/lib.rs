@@ -11,6 +11,8 @@
 //! Note that there is a limit on the number of active threads. Once that limit is hit, a running
 //! job has to finish before others get a chance to run. When a thread is idle, it waits for the
 //! next job or shuts down after a certain timeout.
+//! The default number of threads can be altered by setting BLOCKING_MAX_THREADS environment
+//! variable with value between 1 and 10000.
 //!
 //! [IOCP]: https://en.wikipedia.org/wiki/Input/output_completion_port
 //! [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html
@@ -151,9 +153,7 @@ impl Executor {
     fn max_threads() -> usize {
         match env::var(MAX_THREADS_ENV) {
             Ok(v) => v.parse::<usize>().map(|v| {
-                if v < MIN_MAX_THREADS { MIN_MAX_THREADS } else { v }
-            }).map(|v| {
-                if v > MAX_MAX_THREADS { MAX_MAX_THREADS } else { v }
+                v.max(MIN_MAX_THREADS).min(MAX_MAX_THREADS)
             }).unwrap_or_else(|_| DEFAULT_MAX_THREADS),
             Err(_) => DEFAULT_MAX_THREADS,
         }
