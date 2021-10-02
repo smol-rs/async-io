@@ -11,7 +11,8 @@
 //! Note that there is a limit on the number of active threads. Once that limit is hit, a running
 //! job has to finish before others get a chance to run. When a thread is idle, it waits for the
 //! next job or shuts down after a certain timeout.
-//! The default number of threads can be altered by setting BLOCKING_MAX_THREADS environment
+//!
+//! The default number of threads (set to 500) can be altered by setting BLOCKING_MAX_THREADS environment
 //! variable with value between 1 and 10000.
 //!
 //! [IOCP]: https://en.wikipedia.org/wiki/Input/output_completion_port
