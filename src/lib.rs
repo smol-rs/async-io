@@ -12,6 +12,9 @@
 //! job has to finish before others get a chance to run. When a thread is idle, it waits for the
 //! next job or shuts down after a certain timeout.
 //!
+//! The default number of threads (set to 500) can be altered by setting BLOCKING_MAX_THREADS environment
+//! variable with value between 1 and 10000.
+//!
 //! [IOCP]: https://en.wikipedia.org/wiki/Input/output_completion_port
 //! [AIO]: http://man7.org/linux/man-pages/man2/io_submit.2.html
 //! [io_uring]: https://lwn.net/Articles/776703
@@ -87,12 +90,25 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
+use std::env;
 
 use async_channel::{bounded, Receiver};
 use async_task::{Runnable, Task};
 use atomic_waker::AtomicWaker;
 use futures_lite::{future, prelude::*, ready};
 use once_cell::sync::Lazy;
+
+/// Default value for max threads that Executor can grow to
+const DEFAULT_MAX_THREADS: usize = 500;
+
+/// Minimum value for max threads config
+const MIN_MAX_THREADS: usize = 1;
+
+/// Maximum value for max threads config
+const MAX_MAX_THREADS: usize = 10000;
+
+/// Env variable that allows to override default value for max threads.
+const MAX_THREADS_ENV: &str = "BLOCKING_MAX_THREADS";
 
 /// Lazily initialized global executor.
 static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
@@ -102,6 +118,7 @@ static EXECUTOR: Lazy<Executor> = Lazy::new(|| Executor {
         queue: VecDeque::new(),
     }),
     cvar: Condvar::new(),
+    thread_limit: Executor::max_threads(),
 });
 
 /// The blocking executor.
@@ -111,6 +128,9 @@ struct Executor {
 
     /// Used to put idle threads to sleep and wake them up when new work comes in.
     cvar: Condvar,
+
+    /// Maximum number of threads in the pool
+    thread_limit: usize,
 }
 
 /// Inner state of the blocking executor.
@@ -130,6 +150,15 @@ struct Inner {
 }
 
 impl Executor {
+
+    fn max_threads() -> usize {
+        match env::var(MAX_THREADS_ENV) {
+            Ok(v) => v.parse::<usize>().map(|v| {
+                v.max(MIN_MAX_THREADS).min(MAX_MAX_THREADS)
+            }).unwrap_or_else(|_| DEFAULT_MAX_THREADS),
+            Err(_) => DEFAULT_MAX_THREADS,
+        }
+    }
     /// Spawns a future onto this executor.
     ///
     /// Returns a [`Task`] handle for the spawned task.
@@ -191,7 +220,7 @@ impl Executor {
     fn grow_pool(&'static self, mut inner: MutexGuard<'static, Inner>) {
         // If runnable tasks greatly outnumber idle threads and there aren't too many threads
         // already, then be aggressive: wake all idle threads and spawn one more thread.
-        while inner.queue.len() > inner.idle_count * 5 && inner.thread_count < 500 {
+        while inner.queue.len() > inner.idle_count * 5 && inner.thread_count < EXECUTOR.thread_limit {
             // The new thread starts in idle state.
             inner.idle_count += 1;
             inner.thread_count += 1;
@@ -1211,5 +1240,32 @@ fn maybe_yield(cx: &mut Context<'_>) -> Poll<()> {
         Poll::Pending
     } else {
         Poll::Ready(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn test_max_threads() {
+        // properly set env var
+        env::set_var(MAX_THREADS_ENV, "100");
+        assert_eq!(100, Executor::max_threads());
+
+        // passed value below minimum, so we set it to minimum
+        env::set_var(MAX_THREADS_ENV, "0");
+        assert_eq!(1, Executor::max_threads());
+
+        // passed value above maximum, so we set to allowed maximum
+        env::set_var(MAX_THREADS_ENV, "50000");
+        assert_eq!(10000, Executor::max_threads());
+
+        // no env var, use default
+        env::set_var(MAX_THREADS_ENV, "");
+        assert_eq!(500, Executor::max_threads());
+
+        // not a number, use default
+        env::set_var(MAX_THREADS_ENV, "NOTINT");
+        assert_eq!(500, Executor::max_threads());
     }
 }
