@@ -1,3 +1,7 @@
+# Version 1.1.0
+
+- Add an environment variable to customize the maximum number of threads. (#21)
+
 # Version 1.0.2
 
 - Update `futures-lite`.

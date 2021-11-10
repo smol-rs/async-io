@@ -1,6 +1,9 @@
 [package]
 name = "blocking"
-version = "1.0.2"
+# When publishing a new version:
+# - Update CHANGELOG.md
+# - Create "v1.x.y" git tag
+version = "1.1.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 description = "A thread pool for isolating blocking I/O in async programs"
