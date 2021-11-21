@@ -187,7 +187,10 @@ impl Reactor {
         let now = Instant::now();
 
         // Split timers into ready and pending timers.
-        let pending = timers.split_off(&(now, 0));
+        //
+        // Careful to split just *after* `now`, so that a timer set for exactly `now` is considered
+        // ready.
+        let pending = timers.split_off(&(now + Duration::from_nanos(1), 0));
         let ready = mem::replace(&mut *timers, pending);
 
         // Calculate the duration until the next event.
