@@ -6,6 +6,7 @@ name = "async-io"
 version = "1.6.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
+rust-version = "1.46"
 description = "Async I/O and timers"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/async-io"
@@ -13,6 +14,7 @@ homepage = "https://github.com/smol-rs/async-io"
 documentation = "https://docs.rs/async-io"
 keywords = ["mio", "epoll", "kqueue", "iocp", "wepoll"]
 categories = ["asynchronous", "network-programming", "os"]
+exclude = ["/.*"]
 
 [dependencies]
 concurrent-queue = "1.2.2"

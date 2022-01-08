@@ -1,13 +1,19 @@
-name: Build and test
+name: CI
 
 on:
+  pull_request:
   push:
     branches:
       - master
-  pull_request:
+  schedule:
+    - cron: '0 2 * * *'
+
+env:
+  RUSTFLAGS: -D warnings
+  RUST_BACKTRACE: 1
 
 jobs:
-  build_and_test:
+  test:
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -49,13 +55,70 @@ jobs:
       - run: cargo build --target ${{ matrix.target }} --all --all-features --all-targets
       - run: cargo test --target ${{ matrix.target }}
 
+  cross:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+    - uses: actions/checkout@v2
+    - name: Install Rust
+      run: rustup update stable
+    - name: Install cross
+      run: cargo install cross
+    - name: Android
+      if: startsWith(matrix.os, 'ubuntu')
+      run: cross test --target arm-linux-androideabi
+    - name: NetBSD
+      if: startsWith(matrix.os, 'ubuntu')
+      run: cross build --target x86_64-unknown-netbsd
+    - name: FreeBSD
+      if: startsWith(matrix.os, 'ubuntu')
+      run: cross build --target x86_64-unknown-freebsd
+    - name: iOS
+      if: startsWith(matrix.os, 'macos')
+      run: cross build --target aarch64-apple-ios
+    # - name: illumos
+    #   if: startsWith(matrix.os, 'ubuntu')
+    #   run: cross build --target x86_64-unknown-illumos
+
   msrv:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        rust: [1.46.0]
+        # When updating this, the reminder to update the minimum supported
+        # Rust version in Cargo.toml and .clippy.toml.
+        rust: ['1.46']
     steps:
       - uses: actions/checkout@v2
       - name: Install Rust
         run: rustup update ${{ matrix.rust }} && rustup default ${{ matrix.rust }}
       - run: cargo build
+
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust
+        run: rustup update stable
+      - uses: actions-rs/clippy-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all-features -- -W clippy::all
+
+  fmt:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - name: Install Rust
+        run: rustup update stable
+      - run: cargo fmt --all -- --check
+
+  security_audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/audit-check@v1
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
