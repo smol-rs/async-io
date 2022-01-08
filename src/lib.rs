@@ -995,7 +995,7 @@ where
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&*self).get_ref().read(buf) {
+            match (*self).get_ref().read(buf) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1009,7 +1009,7 @@ where
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&*self).get_ref().read_vectored(bufs) {
+            match (*self).get_ref().read_vectored(bufs) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1072,7 +1072,7 @@ where
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&*self).get_ref().write(buf) {
+            match (*self).get_ref().write(buf) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1086,7 +1086,7 @@ where
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&*self).get_ref().write_vectored(bufs) {
+            match (*self).get_ref().write_vectored(bufs) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1096,7 +1096,7 @@ where
 
     fn poll_flush(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         loop {
-            match (&*self).get_ref().flush() {
+            match (*self).get_ref().flush() {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
