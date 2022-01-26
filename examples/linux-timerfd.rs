@@ -14,6 +14,7 @@ fn main() -> std::io::Result<()> {
 
     use async_io::Async;
     use futures_lite::future;
+    use rustix::fd::BorrowedFd;
     use timerfd::{SetTimeFlags, TimerFd, TimerState};
 
     /// Sleeps using an OS timer.
@@ -24,7 +25,12 @@ fn main() -> std::io::Result<()> {
 
         // When the OS timer fires, a 64-bit integer can be read from it.
         Async::new(timer)?
-            .read_with(|t| nix::unistd::read(t.as_raw_fd(), &mut [0u8; 8]).map_err(io::Error::from))
+            .read_with(|t| {
+                // Safety: Assume `as_raw_fd()` returns a valid fd; when `AsFd`
+                // is stabilized, we can remove this unsafe and simplify.
+                let fd = unsafe { BorrowedFd::borrow_raw(t.as_raw_fd()) };
+                rustix::io::read(fd, &mut [0u8; 8]).map_err(io::Error::from)
+            })
             .await?;
         Ok(())
     }

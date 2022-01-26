@@ -6,7 +6,7 @@ name = "async-io"
 version = "1.12.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
-rust-version = "1.46"
+rust-version = "1.48"
 description = "Async I/O and timers"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/async-io"
@@ -33,7 +33,7 @@ waker-fn = "1.1.0"
 autocfg = "1"
 
 [target."cfg(unix)".dependencies]
-libc = "0.2.77"
+rustix = { version = "0.36.0", features = ["fs"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.42", features = ["Win32_Networking_WinSock"] }
@@ -49,7 +49,6 @@ tempfile = "3"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 inotify = { version = "0.10", default-features = false }
-nix = { version = "0.25", default-features = false }
 timerfd = "1"
 
 [target.'cfg(windows)'.dev-dependencies]
