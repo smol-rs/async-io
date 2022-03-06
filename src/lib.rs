@@ -92,9 +92,9 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::Duration;
 
-pub use async_task::Task;
 use async_channel::{bounded, Receiver};
 use async_task::Runnable;
+pub use async_task::Task;
 use atomic_waker::AtomicWaker;
 use futures_lite::{future, prelude::*, ready};
 use once_cell::sync::Lazy;
