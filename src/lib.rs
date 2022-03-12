@@ -93,7 +93,8 @@ use std::thread;
 use std::time::Duration;
 
 use async_channel::{bounded, Receiver};
-use async_task::{Runnable, Task};
+use async_task::Runnable;
+pub use async_task::Task;
 use atomic_waker::AtomicWaker;
 use futures_lite::{future, prelude::*, ready};
 use once_cell::sync::Lazy;
@@ -267,12 +268,12 @@ impl Executor {
 /// let out = unblock(|| Command::new("dir").output()).await?;
 /// # std::io::Result::Ok(()) });
 /// ```
-pub async fn unblock<T, F>(f: F) -> T
+pub fn unblock<T, F>(f: F) -> Task<T>
 where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    Executor::spawn(async move { f() }).await
+    Executor::spawn(async move { f() })
 }
 
 /// Runs blocking I/O on a thread pool.
