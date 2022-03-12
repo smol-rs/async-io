@@ -1,3 +1,7 @@
+# Version 1.2.0
+
+- Return `Task` from `unblock` instead of returning opaque type. (#25)
+
 # Version 1.1.0
 
 - Add an environment variable to customize the maximum number of threads. (#21)

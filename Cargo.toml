@@ -3,15 +3,13 @@ name = "blocking"
 # When publishing a new version:
 # - Update CHANGELOG.md
 # - Create "v1.x.y" git tag
-version = "1.1.0"
+version = "1.2.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 rust-version = "1.40"
 description = "A thread pool for isolating blocking I/O in async programs"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/blocking"
-homepage = "https://github.com/smol-rs/blocking"
-documentation = "https://docs.rs/blocking"
 keywords = ["async", "file", "stdio", "stdin", "process"]
 categories = ["asynchronous", "concurrency"]
 exclude = ["/.*"]
