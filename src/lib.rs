@@ -94,10 +94,12 @@ use std::time::Duration;
 
 use async_channel::{bounded, Receiver};
 use async_task::Runnable;
-pub use async_task::Task;
 use atomic_waker::AtomicWaker;
 use futures_lite::{future, prelude::*, ready};
 use once_cell::sync::Lazy;
+
+#[doc(no_inline)]
+pub use async_task::Task;
 
 /// Default value for max threads that Executor can grow to
 const DEFAULT_MAX_THREADS: usize = 500;
