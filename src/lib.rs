@@ -59,6 +59,7 @@ use std::convert::TryFrom;
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
+use std::path::Path;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
@@ -68,11 +69,12 @@ use std::time::{Duration, Instant};
 use std::{
     os::unix::io::{AsRawFd, RawFd},
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
-    path::Path,
 };
 
 #[cfg(windows)]
 use std::os::windows::io::{AsRawSocket, RawSocket};
+#[cfg(windows)]
+use uds_windows::{SocketAddr as WindowsSocketAddr, UnixListener, UnixStream};
 
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
@@ -1437,6 +1439,143 @@ impl TryFrom<std::net::UdpSocket> for Async<std::net::UdpSocket> {
 
     fn try_from(socket: std::net::UdpSocket) -> io::Result<Self> {
         Async::new(socket)
+    }
+}
+
+#[cfg(windows)]
+impl Async<UnixListener> {
+    /// Creates a UDS listener bound to the specified path.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::Async;
+    /// use uds_windows::UnixListener;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let listener = Async::<UnixListener>::bind("/tmp/socket")?;
+    /// println!("Listening on {:?}", listener.get_ref().local_addr()?);
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub fn bind<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixListener>> {
+        let path = path.as_ref().to_owned();
+        Async::new(UnixListener::bind(path)?)
+    }
+
+    /// Accepts a new incoming UDS stream connection.
+    ///
+    /// When a connection is established, it will be returned as a stream together with its remote
+    /// address.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::Async;
+    /// use uds_windows::UnixListener;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let listener = Async::<UnixListener>::bind("/tmp/socket")?;
+    /// let (stream, addr) = listener.accept().await?;
+    /// println!("Accepted client: {:?}", addr);
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub async fn accept(&self) -> io::Result<(Async<UnixStream>, WindowsSocketAddr)> {
+        let (stream, addr) = self.read_with(|io| io.accept()).await?;
+        Ok((Async::new(stream)?, addr))
+    }
+
+    /// Returns a stream of incoming UDS connections.
+    ///
+    /// The stream is infinite, i.e. it never stops with a [`None`] item.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::Async;
+    /// use futures_lite::{pin, stream::StreamExt};
+    /// use uds_windows::UnixListener;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let listener = Async::<UnixListener>::bind("/tmp/socket")?;
+    /// let incoming = listener.incoming();
+    /// pin!(incoming);
+    ///
+    /// while let Some(stream) = incoming.next().await {
+    ///     let stream = stream?;
+    ///     println!("Accepted client: {:?}", stream.get_ref().peer_addr()?);
+    /// }
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub fn incoming(&self) -> impl Stream<Item = io::Result<Async<UnixStream>>> + Send + '_ {
+        stream::unfold(self, |listener| async move {
+            let res = listener.accept().await.map(|(stream, _)| stream);
+            Some((res, listener))
+        })
+    }
+}
+
+#[cfg(windows)]
+impl TryFrom<uds_windows::UnixListener> for Async<uds_windows::UnixListener> {
+    type Error = io::Error;
+
+    fn try_from(listener: uds_windows::UnixListener) -> io::Result<Self> {
+        Async::new(listener)
+    }
+}
+
+#[cfg(windows)]
+impl Async<UnixStream> {
+    /// Creates a UDS stream connected to the specified path.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::Async;
+    /// use uds_windows::UnixStream;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let stream = Async::<UnixStream>::connect("/tmp/socket").await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub async fn connect<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixStream>> {
+        // Begin async connect.
+        let socket = UnixStream::connect(path)?;
+        socket.set_nonblocking(true)?;
+        let stream = Async::new(socket)?;
+
+        // The stream becomes writable when connected.
+        stream.writable().await?;
+
+        // On Linux, it appears the socket may become writable even when connecting fails, so we
+        // must do an extra check here and see if the peer address is retrievable.
+        stream.get_ref().peer_addr()?;
+        Ok(stream)
+    }
+
+    /// Creates an unnamed pair of connected UDS stream sockets.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use async_io::Async;
+    /// use uds_windows::UnixStream;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let (stream1, stream2) = Async::<UnixStream>::pair()?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub fn pair() -> io::Result<(Async<UnixStream>, Async<UnixStream>)> {
+        let (stream1, stream2) = UnixStream::pair()?;
+        Ok((Async::new(stream1)?, Async::new(stream2)?))
+    }
+}
+
+#[cfg(windows)]
+impl TryFrom<uds_windows::UnixStream> for Async<uds_windows::UnixStream> {
+    type Error = io::Error;
+
+    fn try_from(stream: uds_windows::UnixStream) -> io::Result<Self> {
+        Async::new(stream)
     }
 }
 

@@ -3,13 +3,16 @@ use std::io;
 use std::net::{Shutdown, TcpListener, TcpStream, UdpSocket};
 #[cfg(unix)]
 use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
+#[cfg(windows)]
+use uds_windows::{UnixListener, UnixStream};
+
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
 use async_io::{Async, Timer};
 use futures_lite::{future, prelude::*};
-#[cfg(unix)]
+
 use tempfile::tempdir;
 
 const LOREM_IPSUM: &[u8] = b"
@@ -155,7 +158,6 @@ fn udp_send_recv() -> io::Result<()> {
     })
 }
 
-#[cfg(unix)]
 #[test]
 fn udp_connect() -> io::Result<()> {
     future::block_on(async {
@@ -178,7 +180,6 @@ fn udp_connect() -> io::Result<()> {
     })
 }
 
-#[cfg(unix)]
 #[test]
 fn uds_connect() -> io::Result<()> {
     future::block_on(async {
@@ -244,7 +245,6 @@ fn uds_send_to_recv_from() -> io::Result<()> {
     })
 }
 
-#[cfg(unix)]
 #[test]
 fn uds_reader_hangup() -> io::Result<()> {
     future::block_on(async {
@@ -262,7 +262,6 @@ fn uds_reader_hangup() -> io::Result<()> {
     })
 }
 
-#[cfg(unix)]
 #[test]
 fn uds_writer_hangup() -> io::Result<()> {
     future::block_on(async {
