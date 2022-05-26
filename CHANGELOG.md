@@ -1,3 +1,7 @@
+# Version 1.7.0
+
+- Process timers set for exactly `now`. (#73)
+
 # Version 1.6.0
 
 - Add `Readable` and `Writable` futures. (#64, #66)
