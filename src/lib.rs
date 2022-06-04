@@ -582,20 +582,21 @@ impl<T: AsRawSocket> Async<T> {
         let sock = io.as_raw_socket();
 
         // Put the socket in non-blocking mode.
-        
-            use winapi::ctypes;
-            use winapi::um::winsock2;
 
-            let mut nonblocking = true as ctypes::c_ulong;
-            let res = unsafe { winsock2::ioctlsocket(
+        use winapi::ctypes;
+        use winapi::um::winsock2;
+
+        let mut nonblocking = true as ctypes::c_ulong;
+        let res = unsafe {
+            winsock2::ioctlsocket(
                 sock as winsock2::SOCKET,
                 winsock2::FIONBIO,
                 &mut nonblocking,
-            ) };
-            if res != 0 {
-                return Err(io::Error::last_os_error());
-            }
-        
+            )
+        };
+        if res != 0 {
+            return Err(io::Error::last_os_error());
+        }
 
         Ok(Async {
             source: Reactor::get().insert_io(sock)?,
