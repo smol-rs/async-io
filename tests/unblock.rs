@@ -23,16 +23,18 @@ fn sleep() {
 
 #[test]
 fn chan() {
+    const N: i32 = if cfg!(miri) { 50 } else { 100_000 };
+
     future::block_on(async {
         let (s, r) = mpsc::sync_channel::<i32>(100);
         let handle = thread::spawn(move || {
-            for i in 0..100_000 {
+            for i in 0..N {
                 s.send(i).unwrap();
             }
         });
 
         let mut r = Unblock::new(r.into_iter());
-        for i in 0i32..100_000 {
+        for i in 0..N {
             assert_eq!(r.next().await, Some(i));
         }
 
@@ -43,8 +45,10 @@ fn chan() {
 
 #[test]
 fn read() {
+    const N: usize = if cfg!(miri) { 20_000 } else { 20_000_000 };
+
     future::block_on(async {
-        let mut v1 = vec![0u8; 20_000_000];
+        let mut v1 = vec![0u8; N];
         for i in 0..v1.len() {
             v1[i] = i as u8;
         }
@@ -60,8 +64,10 @@ fn read() {
 
 #[test]
 fn write() {
+    const N: usize = if cfg!(miri) { 20_000 } else { 20_000_000 };
+
     future::block_on(async {
-        let mut v1 = vec![0u8; 20_000_000];
+        let mut v1 = vec![0u8; N];
         for i in 0..v1.len() {
             v1[i] = i as u8;
         }
