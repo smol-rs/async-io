@@ -587,7 +587,7 @@ impl<T: fmt::Debug> fmt::Debug for Unblock<T> {
         match &self.state {
             State::Idle(None) => f.debug_struct("Unblock").field("io", &Closed).finish(),
             State::Idle(Some(io)) => {
-                let io: &T = &*io;
+                let io: &T = io;
                 f.debug_struct("Unblock").field("io", io).finish()
             }
             State::WithMut(..)
