@@ -12,7 +12,7 @@ use blocking::Unblock;
 use futures_lite::{future, prelude::*};
 
 fn main() -> io::Result<()> {
-    let path = env::args().nth(1).unwrap_or(".".into());
+    let path = env::args().nth(1).unwrap_or_else(|| ".".into());
 
     future::block_on(async {
         let mut dir = Unblock::new(fs::read_dir(path)?);
