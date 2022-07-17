@@ -1,3 +1,5 @@
+#![allow(clippy::needless_range_loop)]
+
 use std::io::{Cursor, SeekFrom};
 use std::sync::mpsc;
 use std::thread;
