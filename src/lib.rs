@@ -573,7 +573,7 @@ impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Async<T> {
 }
 
 #[cfg(all(feature = "io_safety", unix))]
-impl<T: AsRawFd + Into<OwnedFd>> TryFrom<Async<T>> for OwnedFd {
+impl<T: Into<OwnedFd>> TryFrom<Async<T>> for OwnedFd {
     type Error = io::Error;
 
     fn try_from(value: Async<T>) -> Result<Self, Self::Error> {
@@ -658,7 +658,7 @@ impl<T: AsRawSocket + From<OwnedSocket>> TryFrom<OwnedSocket> for Async<T> {
 }
 
 #[cfg(all(feature = "io_safety", windows))]
-impl<T: AsRawFd + Into<OwnedSocket>> TryFrom<Async<T>> for OwnedSocket {
+impl<T: Into<OwnedSocket>> TryFrom<Async<T>> for OwnedSocket {
     type Error = io::Error;
 
     fn try_from(value: Async<T>) -> Result<Self, Self::Error> {
