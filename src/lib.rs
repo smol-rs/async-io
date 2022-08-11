@@ -64,14 +64,14 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
+#[cfg(all(feature = "io_safety", unix))]
+use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
 #[cfg(unix)]
 use std::{
     os::unix::io::{AsRawFd, RawFd},
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
-#[cfg(all(feature = "io_safety", unix))]
-use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
 
 #[cfg(windows)]
 use std::os::windows::io::{AsRawSocket, RawSocket};
@@ -569,7 +569,7 @@ impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Async<T> {
 
     fn try_from(value: OwnedFd) -> Result<Self, Self::Error> {
         Async::new(value.into())
-    } 
+    }
 }
 
 #[cfg(all(feature = "io_safety", unix))]
@@ -578,7 +578,7 @@ impl<T: Into<OwnedFd>> TryFrom<Async<T>> for OwnedFd {
 
     fn try_from(value: Async<T>) -> Result<Self, Self::Error> {
         value.into_inner().map(Into::into)
-    } 
+    }
 }
 
 #[cfg(windows)]
@@ -654,7 +654,7 @@ impl<T: AsRawSocket + From<OwnedSocket>> TryFrom<OwnedSocket> for Async<T> {
 
     fn try_from(value: OwnedSocket) -> Result<Self, Self::Error> {
         Async::new(value.into())
-    } 
+    }
 }
 
 #[cfg(all(feature = "io_safety", windows))]
@@ -663,7 +663,7 @@ impl<T: Into<OwnedSocket>> TryFrom<Async<T>> for OwnedSocket {
 
     fn try_from(value: Async<T>) -> Result<Self, Self::Error> {
         value.into_inner().map(Into::into)
-    } 
+    }
 }
 
 impl<T> Async<T> {
