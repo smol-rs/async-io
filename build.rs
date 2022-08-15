@@ -11,7 +11,7 @@ fn _test2(_: std::os::windows::io::OwnedSocket) {}
 
 fn main() {
     let cfg = autocfg::new();
-    
+
     if cfg.probe_expression(TEST_EXPR) {
         autocfg::emit("has_io_safety");
     }
