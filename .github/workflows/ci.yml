@@ -68,8 +68,7 @@ jobs:
       - run: cargo miri test
         env:
           # -Zmiri-ignore-leaks is needed because we use detached threads in tests/docs: https://github.com/rust-lang/miri/issues/1371
-          # TODO: enable -Zmiri-strict-provenance once https://github.com/matklad/once_cell/pull/185 merged and released.
-          MIRIFLAGS: -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-ignore-leaks
+          MIRIFLAGS: -Zmiri-strict-provenance -Zmiri-symbolic-alignment-check -Zmiri-disable-isolation -Zmiri-ignore-leaks
           RUSTFLAGS: ${{ env.RUSTFLAGS }} -Z randomize-layout
 
   security_audit:
