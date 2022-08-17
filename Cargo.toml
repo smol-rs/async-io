@@ -25,6 +25,9 @@ slab = "0.4.2"
 socket2 = { version = "0.4.2", features = ["all"] }
 waker-fn = "1.1.0"
 
+[build-dependencies]
+autocfg = "1"
+
 [target."cfg(unix)".dependencies]
 libc = "0.2.77"
 
