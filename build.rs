@@ -1,18 +1,16 @@
-const TEST_EXPR: &str = "{
-#[cfg(unix)]
-fn _test<I: std::os::unix::io::AsFd>(_: I) {}
-#[cfg(unix)]
-fn _test2(_: std::os::unix::io::OwnedFd) {}
-#[cfg(windows)]
-fn _test<I: std::os::windows::io::AsSocket>(_: I) {}
-#[cfg(windows)]
-fn _test2(_: std::os::windows::io::OwnedSocket) {}
-}";
-
 fn main() {
-    let cfg = autocfg::new();
+    let cfg = match autocfg::AutoCfg::new() {
+        Ok(cfg) => cfg,
+        Err(e) => {
+            println!(
+                "cargo:warning=async-io: failed to detect compiler features: {}",
+                e
+            );
+            return;
+        }
+    };
 
-    if cfg.probe_expression(TEST_EXPR) {
-        autocfg::emit("has_io_safety");
+    if !cfg.probe_rustc_version(1, 63) {
+        autocfg::emit("async_io_no_io_safety");
     }
 }
