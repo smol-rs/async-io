@@ -1,3 +1,7 @@
+# Version 1.8.0
+
+- Implement I/O safety traits on Rust 1.63+ (#84)
+
 # Version 1.7.0
 
 - Process timers set for exactly `now`. (#73)
