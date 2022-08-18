@@ -1,89 +1,60 @@
 use std::borrow::Borrow;
-use std::collections::BTreeMap;
+use std::cell::UnsafeCell;
 use std::fmt;
 use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
-use std::mem;
+use std::mem::MaybeUninit;
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawSocket;
 use std::panic;
 use std::pin::Pin;
-use std::sync::atomic::{AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard};
+use std::sync::{Arc, Mutex};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-use concurrent_queue::ConcurrentQueue;
 use futures_lite::ready;
 use once_cell::sync::Lazy;
-use polling::{Event, Poller};
 use slab::Slab;
+
+mod poll;
+
+cfg_if::cfg_if! {
+    if #[cfg(target_os = "linux")] {
+        mod uring;
+        use uring as imp;
+    } else {
+        use poll as imp;
+    }
+}
 
 const READ: usize = 0;
 const WRITE: usize = 1;
 
+const MAX_OPERATIONS: usize = 2;
+const READ_OP: usize = 0;
+const WRITE_OP: usize = 1;
+
 /// The reactor.
 ///
 /// There is only one global instance of this type, accessible by [`Reactor::get()`].
-pub(crate) struct Reactor {
-    /// Portable bindings to epoll/kqueue/event ports/wepoll.
-    ///
-    /// This is where I/O is polled, producing I/O events.
-    poller: Poller,
-
-    /// Ticker bumped before polling.
-    ///
-    /// This is useful for checking what is the current "round" of `ReactorLock::react()` when
-    /// synchronizing things in `Source::readable()` and `Source::writable()`. Both of those
-    /// methods must make sure they don't receive stale I/O events - they only accept events from a
-    /// fresh "round" of `ReactorLock::react()`.
-    ticker: AtomicUsize,
-
-    /// Registered sources.
-    sources: Mutex<Slab<Arc<Source>>>,
-
-    /// Temporary storage for I/O events when polling the reactor.
-    ///
-    /// Holding a lock on this event list implies the exclusive right to poll I/O.
-    events: Mutex<Vec<Event>>,
-
-    /// An ordered map of registered timers.
-    ///
-    /// Timers are in the order in which they fire. The `usize` in this type is a timer ID used to
-    /// distinguish timers that fire at the same time. The `Waker` represents the task awaiting the
-    /// timer.
-    timers: Mutex<BTreeMap<(Instant, usize), Waker>>,
-
-    /// A queue of timer operations (insert and remove).
-    ///
-    /// When inserting or removing a timer, we don't process it immediately - we just push it into
-    /// this queue. Timers actually get processed when the queue fills up or the reactor is polled.
-    timer_ops: ConcurrentQueue<TimerOp>,
-}
+pub(crate) struct Reactor(imp::Reactor);
 
 impl Reactor {
     /// Returns a reference to the reactor.
     pub(crate) fn get() -> &'static Reactor {
         static REACTOR: Lazy<Reactor> = Lazy::new(|| {
             crate::driver::init();
-            Reactor {
-                poller: Poller::new().expect("cannot initialize I/O event notification"),
-                ticker: AtomicUsize::new(0),
-                sources: Mutex::new(Slab::new()),
-                events: Mutex::new(Vec::new()),
-                timers: Mutex::new(BTreeMap::new()),
-                timer_ops: ConcurrentQueue::bounded(1000),
-            }
+            Reactor(imp::Reactor::new())
         });
         &REACTOR
     }
 
     /// Returns the current ticker.
     pub(crate) fn ticker(&self) -> usize {
-        self.ticker.load(Ordering::SeqCst)
+        self.0.ticker()
     }
 
     /// Registers an I/O source in the reactor.
@@ -92,242 +63,54 @@ impl Reactor {
         #[cfg(unix)] raw: RawFd,
         #[cfg(windows)] raw: RawSocket,
     ) -> io::Result<Arc<Source>> {
-        // Create an I/O source for this file descriptor.
-        let source = {
-            let mut sources = self.sources.lock().unwrap();
-            let key = sources.vacant_entry().key();
-            let source = Arc::new(Source {
-                raw,
-                key,
-                state: Default::default(),
-            });
-            sources.insert(source.clone());
-            source
-        };
-
-        // Register the file descriptor.
-        if let Err(err) = self.poller.add(raw, Event::none(source.key)) {
-            let mut sources = self.sources.lock().unwrap();
-            sources.remove(source.key);
-            return Err(err);
-        }
-
-        Ok(source)
+        self.0.insert_io(raw)
     }
 
     /// Deregisters an I/O source from the reactor.
     pub(crate) fn remove_io(&self, source: &Source) -> io::Result<()> {
-        let mut sources = self.sources.lock().unwrap();
-        sources.remove(source.key);
-        self.poller.delete(source.raw)
+        self.0.remove_io(source)
     }
 
     /// Registers a timer in the reactor.
     ///
     /// Returns the inserted timer's ID.
     pub(crate) fn insert_timer(&self, when: Instant, waker: &Waker) -> usize {
-        // Generate a new timer ID.
-        static ID_GENERATOR: AtomicUsize = AtomicUsize::new(1);
-        let id = ID_GENERATOR.fetch_add(1, Ordering::Relaxed);
-
-        // Push an insert operation.
-        while self
-            .timer_ops
-            .push(TimerOp::Insert(when, id, waker.clone()))
-            .is_err()
-        {
-            // If the queue is full, drain it and try again.
-            let mut timers = self.timers.lock().unwrap();
-            self.process_timer_ops(&mut timers);
-        }
-
-        // Notify that a timer has been inserted.
-        self.notify();
-
-        id
+        self.0.insert_timer(when, waker)
     }
 
     /// Deregisters a timer from the reactor.
     pub(crate) fn remove_timer(&self, when: Instant, id: usize) {
-        // Push a remove operation.
-        while self.timer_ops.push(TimerOp::Remove(when, id)).is_err() {
-            // If the queue is full, drain it and try again.
-            let mut timers = self.timers.lock().unwrap();
-            self.process_timer_ops(&mut timers);
-        }
+        self.0.remove_timer(when, id)
     }
 
     /// Notifies the thread blocked on the reactor.
     pub(crate) fn notify(&self) {
-        self.poller.notify().expect("failed to notify reactor");
+        self.0.notify()
     }
 
     /// Locks the reactor, potentially blocking if the lock is held by another thread.
     pub(crate) fn lock(&self) -> ReactorLock<'_> {
-        let reactor = self;
-        let events = self.events.lock().unwrap();
-        ReactorLock { reactor, events }
+        ReactorLock(self.0.lock())
     }
 
     /// Attempts to lock the reactor.
     pub(crate) fn try_lock(&self) -> Option<ReactorLock<'_>> {
-        self.events.try_lock().ok().map(|events| {
-            let reactor = self;
-            ReactorLock { reactor, events }
-        })
+        self.0.try_lock().map(ReactorLock)
     }
 
-    /// Processes ready timers and extends the list of wakers to wake.
-    ///
-    /// Returns the duration until the next timer before this method was called.
-    fn process_timers(&self, wakers: &mut Vec<Waker>) -> Option<Duration> {
-        let mut timers = self.timers.lock().unwrap();
-        self.process_timer_ops(&mut timers);
-
-        let now = Instant::now();
-
-        // Split timers into ready and pending timers.
-        //
-        // Careful to split just *after* `now`, so that a timer set for exactly `now` is considered
-        // ready.
-        let pending = timers.split_off(&(now + Duration::from_nanos(1), 0));
-        let ready = mem::replace(&mut *timers, pending);
-
-        // Calculate the duration until the next event.
-        let dur = if ready.is_empty() {
-            // Duration until the next timer.
-            timers
-                .keys()
-                .next()
-                .map(|(when, _)| when.saturating_duration_since(now))
-        } else {
-            // Timers are about to fire right now.
-            Some(Duration::from_secs(0))
-        };
-
-        // Drop the lock before waking.
-        drop(timers);
-
-        // Add wakers to the list.
-        log::trace!("process_timers: {} ready wakers", ready.len());
-        for (_, waker) in ready {
-            wakers.push(waker);
-        }
-
-        dur
-    }
-
-    /// Processes queued timer operations.
-    fn process_timer_ops(&self, timers: &mut MutexGuard<'_, BTreeMap<(Instant, usize), Waker>>) {
-        // Process only as much as fits into the queue, or else this loop could in theory run
-        // forever.
-        for _ in 0..self.timer_ops.capacity().unwrap() {
-            match self.timer_ops.pop() {
-                Ok(TimerOp::Insert(when, id, waker)) => {
-                    timers.insert((when, id), waker);
-                }
-                Ok(TimerOp::Remove(when, id)) => {
-                    timers.remove(&(when, id));
-                }
-                Err(_) => break,
-            }
-        }
+    /// Get the `Poller` backing this reactor.
+    pub(crate) fn poller(&self) -> &polling::Poller {
+        self.0.poller()
     }
 }
 
 /// A lock on the reactor.
-pub(crate) struct ReactorLock<'a> {
-    reactor: &'a Reactor,
-    events: MutexGuard<'a, Vec<Event>>,
-}
+pub(crate) struct ReactorLock<'a>(imp::ReactorLock<'a>);
 
 impl ReactorLock<'_> {
     /// Processes new events, blocking until the first event or the timeout.
     pub(crate) fn react(&mut self, timeout: Option<Duration>) -> io::Result<()> {
-        let mut wakers = Vec::new();
-
-        // Process ready timers.
-        let next_timer = self.reactor.process_timers(&mut wakers);
-
-        // compute the timeout for blocking on I/O events.
-        let timeout = match (next_timer, timeout) {
-            (None, None) => None,
-            (Some(t), None) | (None, Some(t)) => Some(t),
-            (Some(a), Some(b)) => Some(a.min(b)),
-        };
-
-        // Bump the ticker before polling I/O.
-        let tick = self
-            .reactor
-            .ticker
-            .fetch_add(1, Ordering::SeqCst)
-            .wrapping_add(1);
-
-        self.events.clear();
-
-        // Block on I/O events.
-        let res = match self.reactor.poller.wait(&mut self.events, timeout) {
-            // No I/O events occurred.
-            Ok(0) => {
-                if timeout != Some(Duration::from_secs(0)) {
-                    // The non-zero timeout was hit so fire ready timers.
-                    self.reactor.process_timers(&mut wakers);
-                }
-                Ok(())
-            }
-
-            // At least one I/O event occurred.
-            Ok(_) => {
-                // Iterate over sources in the event list.
-                let sources = self.reactor.sources.lock().unwrap();
-
-                for ev in self.events.iter() {
-                    // Check if there is a source in the table with this key.
-                    if let Some(source) = sources.get(ev.key) {
-                        let mut state = source.state.lock().unwrap();
-
-                        // Collect wakers if a writability event was emitted.
-                        for &(dir, emitted) in &[(WRITE, ev.writable), (READ, ev.readable)] {
-                            if emitted {
-                                state[dir].tick = tick;
-                                state[dir].drain_into(&mut wakers);
-                            }
-                        }
-
-                        // Re-register if there are still writers or readers. The can happen if
-                        // e.g. we were previously interested in both readability and writability,
-                        // but only one of them was emitted.
-                        if !state[READ].is_empty() || !state[WRITE].is_empty() {
-                            self.reactor.poller.modify(
-                                source.raw,
-                                Event {
-                                    key: source.key,
-                                    readable: !state[READ].is_empty(),
-                                    writable: !state[WRITE].is_empty(),
-                                },
-                            )?;
-                        }
-                    }
-                }
-
-                Ok(())
-            }
-
-            // The syscall was interrupted.
-            Err(err) if err.kind() == io::ErrorKind::Interrupted => Ok(()),
-
-            // An actual error occureed.
-            Err(err) => Err(err),
-        };
-
-        // Wake up ready tasks.
-        log::trace!("react: {} ready wakers", wakers.len());
-        for waker in wakers {
-            // Don't let a panicking waker blow everything up.
-            panic::catch_unwind(|| waker.wake()).ok();
-        }
-
-        res
+        self.0.react(timeout)
     }
 }
 
@@ -352,7 +135,16 @@ pub(crate) struct Source {
     key: usize,
 
     /// Inner state with registered wakers.
-    state: Mutex<[Direction; 2]>,
+    state: Mutex<State>,
+}
+
+/// The inner state of a `Source`, with registered wakers.
+#[derive(Debug, Default)]
+struct State {
+    /// The directions used for polling read/write readiness.
+    readiness: [Direction; 2],
+    /// The ongoing operations for completion-based I/O.
+    operations: [Operation; MAX_OPERATIONS],
 }
 
 /// A read or write direction.
@@ -392,6 +184,45 @@ impl Direction {
     }
 }
 
+/// An operation for completion-based I/O.
+#[derive(Debug, Default)]
+struct Operation {
+    /// The current status of the operation.
+    status: OperationStatus,
+    /// The waker registered for this operation.
+    waker: Option<Waker>,
+    /// The buffer for this operation.
+    ///
+    /// Once the completion operation begins, logically this buffer
+    /// is no longer owned by the `Operation` but by the system API
+    /// (e.g. `io_uring`). In order to assert to the type system this
+    /// condition, we use an `UnsafeCell` to hold the buffer.
+    ///
+    /// # Invariants
+    ///
+    /// When `status` is `NotStarted` or `Pending`, this buffer is "owned"
+    /// byt the system, and it is unsound to access it. At any other time,
+    /// it can be accessed safely.
+    buffer: UnsafeCell<Vec<MaybeUninit<u8>>>,
+}
+
+/// The status of an `Operation`.
+#[derive(Debug)]
+enum OperationStatus {
+    /// The operation has not yet begun.
+    NotStarted,
+    /// The operation is currently running.
+    Pending,
+    /// The operation has completed with the given result.
+    Complete(isize),
+}
+
+impl Default for OperationStatus {
+    fn default() -> Self {
+        OperationStatus::NotStarted
+    }
+}
+
 impl Source {
     /// Polls the I/O source for readability.
     pub(crate) fn poll_readable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -407,7 +238,8 @@ impl Source {
     ///
     /// If a different waker is already registered, it gets replaced and woken.
     fn poll_ready(&self, dir: usize, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
-        let mut state = self.state.lock().unwrap();
+        let mut lock = self.state.lock().unwrap();
+        let state = &mut lock.readiness;
 
         // Check if the reactor has delivered an event.
         if let Some((a, b)) = state[dir].ticks {
@@ -435,9 +267,9 @@ impl Source {
 
         // Update interest in this I/O handle.
         if was_empty {
-            Reactor::get().poller.modify(
+            Reactor::get().poller().modify(
                 self.raw,
-                Event {
+                polling::Event {
                     key: self.key,
                     readable: !state[READ].is_empty(),
                     writable: !state[WRITE].is_empty(),
@@ -583,7 +415,8 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
             ..
         } = &mut *self;
 
-        let mut state = handle.borrow().source.state.lock().unwrap();
+        let mut lock = handle.borrow().source.state.lock().unwrap();
+        let state = &mut lock.readiness;
 
         // Check if the reactor has delivered an event.
         if let Some((a, b)) = *ticks {
@@ -616,9 +449,9 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
 
         // Update interest in this I/O handle.
         if was_empty {
-            Reactor::get().poller.modify(
+            Reactor::get().poller().modify(
                 handle.borrow().source.raw,
-                Event {
+                polling::Event {
                     key: handle.borrow().source.key,
                     readable: !state[READ].is_empty(),
                     writable: !state[WRITE].is_empty(),
@@ -641,7 +474,7 @@ struct RemoveOnDrop<H: Borrow<crate::Async<T>>, T> {
 impl<H: Borrow<crate::Async<T>>, T> Drop for RemoveOnDrop<H, T> {
     fn drop(&mut self) {
         let mut state = self.handle.borrow().source.state.lock().unwrap();
-        let wakers = &mut state[self.dir].wakers;
+        let wakers = &mut state.readiness[self.dir].wakers;
         if wakers.contains(self.key) {
             wakers.remove(self.key);
         }
