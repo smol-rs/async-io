@@ -2,7 +2,7 @@ use std::borrow::Borrow;
 use std::cell::UnsafeCell;
 use std::fmt;
 use std::future::Future;
-use std::io;
+use std::io::{self, Read, Write};
 use std::marker::PhantomData;
 use std::mem::MaybeUninit;
 #[cfg(unix)]
@@ -86,6 +86,36 @@ impl Reactor {
     /// Notifies the thread blocked on the reactor.
     pub(crate) fn notify(&self) {
         self.0.notify()
+    }
+
+    /// Try to read from the given source.
+    ///
+    /// If the read is not successful, it is registered in the
+    /// reactor. The source is then notified when the read is
+    /// successful.
+    pub(crate) fn poll_read(
+        &self,
+        readable: &mut impl Read,
+        source: &Source,
+        buf: &mut [u8],
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<usize>> {
+        self.0.poll_read(readable, source, buf, cx)
+    }
+
+    /// Try to write to the given source.
+    ///
+    /// If the write is not successful, it is registered in the
+    /// reactor. In certain cases this can take advantage of
+    /// completion-based APIs in order to be faster than normal.
+    pub(crate) fn poll_write(
+        &self,
+        writable: &mut impl Write,
+        source: &Source,
+        buf: &[u8],
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<usize>> {
+        self.0.poll_write(writable, source, buf, cx)
     }
 
     /// Locks the reactor, potentially blocking if the lock is held by another thread.
@@ -200,9 +230,9 @@ struct Operation {
     ///
     /// # Invariants
     ///
-    /// When `status` is `NotStarted` or `Pending`, this buffer is "owned"
-    /// byt the system, and it is unsound to access it. At any other time,
-    /// it can be accessed safely.
+    /// When `status` is `Pending`, this buffer is "owned"
+    /// by the system, and it is unsound to access it.
+    /// When `status` is something else, it can be accessed safely.
     buffer: UnsafeCell<Vec<MaybeUninit<u8>>>,
 }
 

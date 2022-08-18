@@ -1,7 +1,8 @@
 use super::{Source, TimerOp};
 
 use std::collections::BTreeMap;
-use std::io;
+use std::io::Read;
+use std::io::{self, Write};
 use std::mem;
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
@@ -10,10 +11,11 @@ use std::os::windows::io::RawSocket;
 use std::panic;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
-use std::task::Waker;
+use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use concurrent_queue::ConcurrentQueue;
+use futures_lite::ready;
 use polling::{Event, Poller};
 use slab::Slab;
 
@@ -156,6 +158,40 @@ impl Reactor {
         self.poller.notify().expect("failed to notify reactor");
     }
 
+    /// Try to poll for a `Read` event on the given source.
+    pub(crate) fn poll_read(
+        &self,
+        readable: &mut impl Read,
+        source: &Source,
+        buf: &mut [u8],
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<usize>> {
+        loop {
+            match readable.read(buf) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                res => return Poll::Ready(res),
+            }
+            ready!(source.poll_readable(cx))?;
+        }
+    }
+
+    /// Try to poll for a `Write` event on the given source.
+    pub(crate) fn poll_write(
+        &self,
+        writable: &mut impl Write,
+        source: &Source,
+        buf: &[u8],
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<usize>> {
+        loop {
+            match writable.write(buf) {
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {}
+                res => return Poll::Ready(res),
+            }
+            ready!(source.poll_writable(cx))?;
+        }
+    }
+
     /// Locks the reactor, potentially blocking if the lock is held by another thread.
     pub(crate) fn lock(&self) -> ReactorLock<'_> {
         let reactor = self;
@@ -232,7 +268,7 @@ impl Reactor {
 /// A lock on the reactor.
 pub(crate) struct ReactorLock<'a> {
     reactor: &'a Reactor,
-    pub(crate) events: MutexGuard<'a, Vec<Event>>,
+    events: MutexGuard<'a, Vec<Event>>,
 }
 
 impl ReactorLock<'_> {

@@ -1012,17 +1012,14 @@ impl<T> Drop for Async<T> {
 
 impl<T: Read> AsyncRead for Async<T> {
     fn poll_read(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        loop {
-            match (&mut *self).get_mut().read(buf) {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
-            }
-            ready!(self.poll_readable(cx))?;
-        }
+        let this = self.get_mut();
+
+        // Manually access the fields in order to keep the borrow checker happy.
+        Reactor::get().poll_read(this.io.as_mut().unwrap(), &this.source, buf, cx)
     }
 
     fn poll_read_vectored(
@@ -1049,13 +1046,7 @@ where
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
-        loop {
-            match (*self).get_ref().read(buf) {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
-            }
-            ready!(self.poll_readable(cx))?;
-        }
+        Reactor::get().poll_read(&mut self.get_ref(), &self.source, buf, cx)
     }
 
     fn poll_read_vectored(
@@ -1075,17 +1066,12 @@ where
 
 impl<T: Write> AsyncWrite for Async<T> {
     fn poll_write(
-        mut self: Pin<&mut Self>,
+        self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        loop {
-            match (&mut *self).get_mut().write(buf) {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
-            }
-            ready!(self.poll_writable(cx))?;
-        }
+        let this = self.get_mut();
+        Reactor::get().poll_write(this.io.as_mut().unwrap(), &this.source, buf, cx)
     }
 
     fn poll_write_vectored(
@@ -1126,13 +1112,7 @@ where
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
-        loop {
-            match (*self).get_ref().write(buf) {
-                Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-                res => return Poll::Ready(res),
-            }
-            ready!(self.poll_writable(cx))?;
-        }
+        Reactor::get().poll_write(&mut self.get_ref(), &self.source, buf, cx)
     }
 
     fn poll_write_vectored(

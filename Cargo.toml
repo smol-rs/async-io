@@ -21,7 +21,7 @@ futures-lite = "1.11.0"
 log = "0.4.11"
 once_cell = "1.4.1"
 parking = "2.0.0"
-polling = { git = "https://github.com/notgull/polling" }
+polling = { git = "https://github.com/smol-rs/polling" }
 slab = "0.4.2"
 socket2 = { version = "0.4.2", features = ["all"] }
 waker-fn = "1.1.0"

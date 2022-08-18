@@ -1,15 +1,16 @@
 use crate::reactor::OperationStatus;
 
 use super::poll::{Reactor as PollReactor, ReactorLock as PollReactorLock};
-use super::{Source, MAX_OPERATIONS};
+use super::{Source, READ_OP, WRITE_OP};
 
-use std::io;
+use std::io::{self, Read, Write};
 use std::mem::MaybeUninit;
 use std::os::unix::io::{AsRawFd, RawFd};
 use std::panic;
+use std::slice;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::task::{Context, Waker};
+use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use io_uring::cqueue::Entry as CompletionEntry;
@@ -107,6 +108,111 @@ impl Reactor {
         self.polling.notify();
     }
 
+    /// Try to poll for a `Read` event on the given source.
+    pub(crate) fn poll_read(
+        &self,
+        readable: &mut impl Read,
+        source: &Source,
+        buf: &mut [u8],
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<usize>> {
+        if let Some(ref uring) = self.uring {
+            unsafe {
+                uring.try_operation(
+                    READ_OP,
+                    source,
+                    buf,
+                    cx,
+                    |buf, uring_buf| {
+                        match readable.read(buf) {
+                            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                                // Resize the buffer to the proper size.
+                                let uring_buf = &mut *uring_buf;
+                                if uring_buf.len() < buf.len() {
+                                    // SAFETY: MaybeUninit is allowed to be uninit.
+                                    uring_buf.reserve(buf.len() - uring_buf.len());
+                                    uring_buf.set_len(buf.len());
+                                }
+
+                                Err(io_uring::opcode::Read::new(
+                                    Fd(source.raw),
+                                    uring_buf.as_mut_ptr().cast(),
+                                    buf.len() as _,
+                                )
+                                .build())
+                            }
+                            res => Ok(res),
+                        }
+                    },
+                    |buf, uring_buf, code| match code {
+                        code if code < 0 => Err(io::Error::from_raw_os_error(-code as _)),
+                        result => {
+                            // memcpy from uring_buf to buf
+                            let uring_buf = &mut *uring_buf;
+                            let amt = result as usize;
+
+                            // SAFETY: we know at least amt bytes are initialized
+                            buf[..amt].copy_from_slice(slice::from_raw_parts(
+                                uring_buf.as_ptr().cast(),
+                                amt,
+                            ));
+                            Ok(amt)
+                        }
+                    },
+                )
+            }
+        } else {
+            self.polling.poll_read(readable, source, buf, cx)
+        }
+    }
+
+    /// Try to poll for a `Write` event on the given source.
+    pub(crate) fn poll_write(
+        &self,
+        writable: &mut impl Write,
+        source: &Source,
+        buf: &[u8],
+        cx: &mut Context<'_>,
+    ) -> Poll<io::Result<usize>> {
+        if let Some(ref uring) = self.uring {
+            unsafe {
+                uring.try_operation(
+                    WRITE_OP,
+                    source,
+                    (),
+                    cx,
+                    |(), uring_buf| {
+                        match writable.write(buf) {
+                            Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                                // Fill the buffer with our bytes.
+                                let uring_buf = &mut *uring_buf;
+                                uring_buf.clear();
+                                uring_buf.extend_from_slice(slice::from_raw_parts(
+                                    buf.as_ptr().cast(),
+                                    buf.len(),
+                                ));
+
+                                Err(io_uring::opcode::Write::new(
+                                    Fd(source.raw),
+                                    uring_buf.as_ptr().cast(),
+                                    buf.len() as _,
+                                )
+                                .build())
+                            }
+                            res => Ok(res),
+                        }
+                    },
+                    |(), _, code| match code {
+                        code if code < 0 => Err(io::Error::from_raw_os_error(-code as _)),
+                        result => Ok(result as usize),
+                    },
+                )
+            }
+        } else {
+            self.polling.poll_write(writable, source, buf, cx)
+        }
+    }
+
     /// Acquires a lock on the reactor.
     pub(super) fn lock(&self) -> ReactorLock<'_> {
         let reactor = self;
@@ -135,8 +241,6 @@ impl<'a> ReactorLock<'a> {
     /// Processes new events, blocking until the first event or timeout.
     pub(super) fn react(&mut self, timeout: Option<Duration>) -> io::Result<()> {
         if let Some(ref uring) = self.reactor.uring {
-            log::trace!("react: beginning uring: {:?}", timeout);
-
             // Prepare timers/deadline for polling.
             let mut wakers = vec![];
             let (timeout, tick) = self.inner.prepare_for_polling(timeout, &mut wakers);
@@ -219,6 +323,7 @@ impl<'a> ReactorLock<'a> {
                         wakers,
                     ));
                 } else {
+                    log::trace!("Found non-epoll entry: {:?}", data);
                     let sources = self.reactor.polling.sources.lock().unwrap();
 
                     // determine the operation involved in the event
@@ -271,6 +376,79 @@ struct Uring {
 }
 
 impl Uring {
+    /// Register an operation into the reactor.
+    ///
+    /// The `op_index` parameter defines the operation to use, and the
+    /// `Source` parameter is the source to register the operation with.
+    /// `op` attempts to run the operation; potentially creating an early
+    /// out, or returning the entry to be inserting into the ring.
+    /// `transform_result` transforms the `isize` returned by the
+    /// operation into the desired result.
+    ///
+    /// # Safety
+    ///
+    /// The `SubmissionEntry` returned by `op` must be a valid entry.
+    /// In addition, the rules for the buffer must be followed.
+    unsafe fn try_operation<T, R>(
+        &self,
+        op_index: usize,
+        source: &Source,
+        param: T,
+        cx: &mut Context<'_>,
+        op: impl FnOnce(T, *mut Vec<MaybeUninit<u8>>) -> Result<R, SubmissionEntry>,
+        transform_result: impl FnOnce(T, *mut Vec<MaybeUninit<u8>>, isize) -> R,
+    ) -> Poll<R> {
+        // Fetch the operation in question.
+        let mut state = source.state.lock().unwrap();
+        let operation = &mut state.operations[op_index];
+
+        // Tell if the state has been completed, or if we need to start.
+        match operation.status {
+            OperationStatus::NotStarted => {
+                // Start the operation.
+                let buffer = operation.buffer.get();
+                match op(param, buffer) {
+                    Ok(result) => {
+                        // The operation finished early.
+                        Poll::Ready(result)
+                    }
+                    Err(entry) => {
+                        // The operation must be entered into the queue.
+                        match self.submit_entry(source.key, op_index, entry, cx) {
+                            Err(e) => panic!("try_operation: failed to submit entry: {}", e),
+                            Ok(true) => {
+                                // Register the waker in the operation.
+                                operation.waker = Some(cx.waker().clone());
+                                operation.status = OperationStatus::Pending;
+                            }
+                            _ => {}
+                        }
+                        Poll::Pending
+                    }
+                }
+            }
+            OperationStatus::Pending => {
+                // The operation is still pending. Register the waker.
+                if let Some(w) = operation.waker.take() {
+                    if w.will_wake(cx.waker()) {
+                        operation.waker = Some(w);
+                        return Poll::Pending;
+                    }
+                    // Wake the previous waker, since it will be replaced.
+                    panic::catch_unwind(|| w.wake()).ok();
+                }
+
+                operation.waker = Some(cx.waker().clone());
+                Poll::Pending
+            }
+            OperationStatus::Complete(result) => {
+                // We've retrieved our final result.
+                operation.status = OperationStatus::NotStarted;
+                Poll::Ready(transform_result(param, operation.buffer.get(), result))
+            }
+        }
+    }
+
     /// Register the `polling` instance into the ring if it hasn't
     /// been already.
     fn register_polling(&self, poller: &Poller) {
@@ -308,7 +486,7 @@ impl Uring {
         operation: usize,
         entry: SubmissionEntry,
         task: &mut Context<'_>,
-    ) -> bool {
+    ) -> io::Result<bool> {
         // Add user data combining the source's key and the operation key
         // to the entry.
         debug_assert!(key as u64 & OPERATION_MASK == 0);
@@ -328,7 +506,7 @@ impl Uring {
         // This way, nothing will ever hamper the epoll entry being added.
         if submit_queue.len() >= submit_queue.capacity() - 1 {
             self.submission_wait.push(task.waker().clone()).ok();
-            return false;
+            return Ok(false);
         }
 
         // Push the entry to the queue.
@@ -337,7 +515,9 @@ impl Uring {
             .push(&entry)
             .expect("Submit queue cannot be pushed to.");
 
-        true
+        self.io_uring.submitter().submit()?;
+
+        Ok(true)
     }
 }
 
