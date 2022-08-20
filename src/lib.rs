@@ -159,20 +159,20 @@ impl Timer {
     /// Creates a timer that will never fire.
     ///
     /// # Examples
-    /// 
+    ///
     /// This function may also be useful for creating a function with an optional timeout.
-    /// 
+    ///
     /// ```
     /// # futures_lite::future::block_on(async {
     /// use async_io::Timer;
     /// use futures_lite::prelude::*;
     /// use std::time::Duration;
-    /// 
+    ///
     /// async fn run_with_timeout(timeout: Option<Duration>) {
     ///     let timer = timeout
     ///         .map(|timeout| Timer::after(timeout))
     ///         .unwrap_or_else(Timer::never);
-    /// 
+    ///
     ///     run_lengthy_operation().or(timer).await;
     /// }
     /// # // Note that since a Timer as a Future returns an Instant,
@@ -181,7 +181,7 @@ impl Timer {
     /// # async fn run_lengthy_operation() -> std::time::Instant {
     /// #    std::time::Instant::now()
     /// # }
-    /// 
+    ///
     /// // Times out after 5 seconds.
     /// run_with_timeout(Some(Duration::from_secs(5))).await;
     /// // Does not time out.
