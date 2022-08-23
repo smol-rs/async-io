@@ -1,7 +1,7 @@
 //! Benchmarks for a variety of I/O operations.
 
-use async_io::{Async, Timer};
-use criterion::{black_box, criterion_group, criterion_main, BatchSize, Criterion};
+use async_io::Async;
+use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use futures_lite::{future, prelude::*};
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 
@@ -82,7 +82,7 @@ fn connect_and_accept(c: &mut Criterion) {
         group.bench_function(format!("TcpStream.{}", driver_name), move |b| {
             let socket_addr =
                 SocketAddr::new("127.0.0.1".parse::<Ipv4Addr>().unwrap().into(), 12345);
-            let mut listener = Async::<TcpListener>::bind(socket_addr).unwrap();
+            let listener = Async::<TcpListener>::bind(socket_addr).unwrap();
 
             b.iter(|| {
                 block_on(
@@ -106,7 +106,7 @@ fn connect_and_accept(c: &mut Criterion) {
             let id = u64::from_ne_bytes(id);
 
             let socket_addr = format!("/tmp/async-io-bench-{}.sock", id);
-            let mut listener = Async::<UnixListener>::bind(&socket_addr).unwrap();
+            let listener = Async::<UnixListener>::bind(&socket_addr).unwrap();
 
             group.bench_function(format!("UnixStream.{}", driver_name), |b| {
                 b.iter(|| {
@@ -136,8 +136,8 @@ fn udp_send_recv(c: &mut Criterion) {
     let socket_addr1 = socket_addr(12345);
     let socket_addr2 = socket_addr(12346);
 
-    let mut reader = Async::<UdpSocket>::bind(socket_addr1).unwrap();
-    let mut writer = Async::<UdpSocket>::bind(socket_addr2).unwrap();
+    let reader = Async::<UdpSocket>::bind(socket_addr1).unwrap();
+    let writer = Async::<UdpSocket>::bind(socket_addr2).unwrap();
 
     let mut buf = vec![0x42; UDP_AMOUNT];
 
