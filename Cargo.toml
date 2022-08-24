@@ -14,6 +14,10 @@ keywords = ["mio", "epoll", "kqueue", "iocp", "wepoll"]
 categories = ["asynchronous", "network-programming", "os"]
 exclude = ["/.*"]
 
+[[bench]]
+name = "io"
+harness = false
+
 [dependencies]
 concurrent-queue = "1.2.2"
 futures-lite = "1.11.0"
@@ -38,6 +42,8 @@ winapi = { version = "0.3.9", features = ["winsock2"] }
 async-channel = "1"
 async-net = "1"
 blocking = "1"
+criterion = "0.3.6" 
+getrandom = "0.2.7"
 signal-hook = "0.3"
 tempfile = "3"
 
