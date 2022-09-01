@@ -1,3 +1,8 @@
+# Version 1.9.0
+
+- Fix panic on very large timeout. (#87)
+- Add `Timer::never` (#87)
+
 # Version 1.8.0
 
 - Implement I/O safety traits on Rust 1.63+ (#84)

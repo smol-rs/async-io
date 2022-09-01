@@ -3,7 +3,7 @@ name = "async-io"
 # When publishing a new version:
 # - Update CHANGELOG.md
 # - Create "v1.x.y" git tag
-version = "1.8.0"
+version = "1.9.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 rust-version = "1.46"
@@ -42,7 +42,7 @@ winapi = { version = "0.3.9", features = ["winsock2"] }
 async-channel = "1"
 async-net = "1"
 blocking = "1"
-criterion = "0.3.6" 
+criterion = "0.3.6"
 getrandom = "0.2.7"
 signal-hook = "0.3"
 tempfile = "3"
