@@ -1,24 +1,26 @@
+#[cfg(feature = "timer")]
+use super::timer::Reactor as Timers;
+#[cfg(feature = "timer")]
+use std::time::Instant;
+
 use std::borrow::Borrow;
-use std::collections::BTreeMap;
 use std::fmt;
 use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
-use std::mem;
 #[cfg(unix)]
 use std::os::unix::io::RawFd;
 #[cfg(windows)]
 use std::os::windows::io::RawSocket;
 use std::panic;
 use std::pin::Pin;
+#[cfg(not(feature = "timer"))]
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
-use concurrent_queue::ConcurrentQueue;
 use futures_lite::ready;
-use once_cell::sync::Lazy;
 use polling::{Event, Poller};
 use slab::Slab;
 
@@ -34,14 +36,6 @@ pub(crate) struct Reactor {
     /// This is where I/O is polled, producing I/O events.
     poller: Poller,
 
-    /// Ticker bumped before polling.
-    ///
-    /// This is useful for checking what is the current "round" of `ReactorLock::react()` when
-    /// synchronizing things in `Source::readable()` and `Source::writable()`. Both of those
-    /// methods must make sure they don't receive stale I/O events - they only accept events from a
-    /// fresh "round" of `ReactorLock::react()`.
-    ticker: AtomicUsize,
-
     /// Registered sources.
     sources: Mutex<Slab<Arc<Source>>>,
 
@@ -50,40 +44,24 @@ pub(crate) struct Reactor {
     /// Holding a lock on this event list implies the exclusive right to poll I/O.
     events: Mutex<Vec<Event>>,
 
-    /// An ordered map of registered timers.
-    ///
-    /// Timers are in the order in which they fire. The `usize` in this type is a timer ID used to
-    /// distinguish timers that fire at the same time. The `Waker` represents the task awaiting the
-    /// timer.
-    timers: Mutex<BTreeMap<(Instant, usize), Waker>>,
-
-    /// A queue of timer operations (insert and remove).
-    ///
-    /// When inserting or removing a timer, we don't process it immediately - we just push it into
-    /// this queue. Timers actually get processed when the queue fills up or the reactor is polled.
-    timer_ops: ConcurrentQueue<TimerOp>,
+    /// The object used to manage timers within the reactor.
+    timers: Timers,
 }
 
 impl Reactor {
-    /// Returns a reference to the reactor.
-    pub(crate) fn get() -> &'static Reactor {
-        static REACTOR: Lazy<Reactor> = Lazy::new(|| {
-            crate::driver::init();
-            Reactor {
-                poller: Poller::new().expect("cannot initialize I/O event notification"),
-                ticker: AtomicUsize::new(0),
-                sources: Mutex::new(Slab::new()),
-                events: Mutex::new(Vec::new()),
-                timers: Mutex::new(BTreeMap::new()),
-                timer_ops: ConcurrentQueue::bounded(1000),
-            }
-        });
-        &REACTOR
+    /// Create a new `Reactor`.
+    pub(crate) fn new() -> Reactor {
+        Reactor {
+            poller: Poller::new().expect("cannot initialize I/O event notification"),
+            sources: Mutex::new(Slab::new()),
+            events: Mutex::new(Vec::new()),
+            timers: Timers::new(),
+        }
     }
 
     /// Returns the current ticker.
     pub(crate) fn ticker(&self) -> usize {
-        self.ticker.load(Ordering::SeqCst)
+        self.timers.ticker()
     }
 
     /// Registers an I/O source in the reactor.
@@ -125,36 +103,15 @@ impl Reactor {
     /// Registers a timer in the reactor.
     ///
     /// Returns the inserted timer's ID.
+    #[cfg(feature = "timer")]
     pub(crate) fn insert_timer(&self, when: Instant, waker: &Waker) -> usize {
-        // Generate a new timer ID.
-        static ID_GENERATOR: AtomicUsize = AtomicUsize::new(1);
-        let id = ID_GENERATOR.fetch_add(1, Ordering::Relaxed);
-
-        // Push an insert operation.
-        while self
-            .timer_ops
-            .push(TimerOp::Insert(when, id, waker.clone()))
-            .is_err()
-        {
-            // If the queue is full, drain it and try again.
-            let mut timers = self.timers.lock().unwrap();
-            self.process_timer_ops(&mut timers);
-        }
-
-        // Notify that a timer has been inserted.
-        self.notify();
-
-        id
+        self.timers.insert_timer(when, waker)
     }
 
     /// Deregisters a timer from the reactor.
+    #[cfg(feature = "timer")]
     pub(crate) fn remove_timer(&self, when: Instant, id: usize) {
-        // Push a remove operation.
-        while self.timer_ops.push(TimerOp::Remove(when, id)).is_err() {
-            // If the queue is full, drain it and try again.
-            let mut timers = self.timers.lock().unwrap();
-            self.process_timer_ops(&mut timers);
-        }
+        self.timers.remove_timer(when, id);
     }
 
     /// Notifies the thread blocked on the reactor.
@@ -176,63 +133,6 @@ impl Reactor {
             ReactorLock { reactor, events }
         })
     }
-
-    /// Processes ready timers and extends the list of wakers to wake.
-    ///
-    /// Returns the duration until the next timer before this method was called.
-    fn process_timers(&self, wakers: &mut Vec<Waker>) -> Option<Duration> {
-        let mut timers = self.timers.lock().unwrap();
-        self.process_timer_ops(&mut timers);
-
-        let now = Instant::now();
-
-        // Split timers into ready and pending timers.
-        //
-        // Careful to split just *after* `now`, so that a timer set for exactly `now` is considered
-        // ready.
-        let pending = timers.split_off(&(now + Duration::from_nanos(1), 0));
-        let ready = mem::replace(&mut *timers, pending);
-
-        // Calculate the duration until the next event.
-        let dur = if ready.is_empty() {
-            // Duration until the next timer.
-            timers
-                .keys()
-                .next()
-                .map(|(when, _)| when.saturating_duration_since(now))
-        } else {
-            // Timers are about to fire right now.
-            Some(Duration::from_secs(0))
-        };
-
-        // Drop the lock before waking.
-        drop(timers);
-
-        // Add wakers to the list.
-        log::trace!("process_timers: {} ready wakers", ready.len());
-        for (_, waker) in ready {
-            wakers.push(waker);
-        }
-
-        dur
-    }
-
-    /// Processes queued timer operations.
-    fn process_timer_ops(&self, timers: &mut MutexGuard<'_, BTreeMap<(Instant, usize), Waker>>) {
-        // Process only as much as fits into the queue, or else this loop could in theory run
-        // forever.
-        for _ in 0..self.timer_ops.capacity().unwrap() {
-            match self.timer_ops.pop() {
-                Ok(TimerOp::Insert(when, id, waker)) => {
-                    timers.insert((when, id), waker);
-                }
-                Ok(TimerOp::Remove(when, id)) => {
-                    timers.remove(&(when, id));
-                }
-                Err(_) => break,
-            }
-        }
-    }
 }
 
 /// A lock on the reactor.
@@ -246,22 +146,11 @@ impl ReactorLock<'_> {
     pub(crate) fn react(&mut self, timeout: Option<Duration>) -> io::Result<()> {
         let mut wakers = Vec::new();
 
-        // Process ready timers.
-        let next_timer = self.reactor.process_timers(&mut wakers);
-
         // compute the timeout for blocking on I/O events.
-        let timeout = match (next_timer, timeout) {
-            (None, None) => None,
-            (Some(t), None) | (None, Some(t)) => Some(t),
-            (Some(a), Some(b)) => Some(a.min(b)),
-        };
+        let timeout = self.reactor.timers.timeout_duration(timeout, &mut wakers);
 
         // Bump the ticker before polling I/O.
-        let tick = self
-            .reactor
-            .ticker
-            .fetch_add(1, Ordering::SeqCst)
-            .wrapping_add(1);
+        let tick = self.reactor.timers.bump_ticker();
 
         self.events.clear();
 
@@ -271,7 +160,7 @@ impl ReactorLock<'_> {
             Ok(0) => {
                 if timeout != Some(Duration::from_secs(0)) {
                     // The non-zero timeout was hit so fire ready timers.
-                    self.reactor.process_timers(&mut wakers);
+                    self.reactor.timers.process_timers(&mut wakers);
                 }
                 Ok(())
             }
@@ -331,10 +220,38 @@ impl ReactorLock<'_> {
     }
 }
 
-/// A single timer operation.
-enum TimerOp {
-    Insert(Instant, usize, Waker),
-    Remove(Instant, usize),
+/// Shim for `Timers` on targets with timers disabled.
+#[cfg(not(feature = "timer"))]
+struct Timers {
+    /// The ticker.
+    ticker: AtomicUsize,
+}
+
+#[cfg(not(feature = "timer"))]
+impl Timers {
+    fn new() -> Self {
+        Self {
+            ticker: AtomicUsize::new(0),
+        }
+    }
+
+    fn timeout_duration(
+        &self,
+        timeout: Option<Duration>,
+        _wakers: &mut Vec<Waker>,
+    ) -> Option<Duration> {
+        timeout
+    }
+
+    fn process_timers(&self, _wakers: &mut Vec<Waker>) {}
+
+    fn ticker(&self) -> usize {
+        self.ticker.load(Ordering::SeqCst)
+    }
+
+    fn bump_ticker(&self) -> usize {
+        self.ticker.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
+    }
 }
 
 /// A registered source of I/O events.
@@ -431,11 +348,11 @@ impl Source {
             panic::catch_unwind(|| w.wake()).ok();
         }
         state[dir].waker = Some(cx.waker().clone());
-        state[dir].ticks = Some((Reactor::get().ticker(), state[dir].tick));
+        state[dir].ticks = Some((crate::reactor::Reactor::get().ticker(), state[dir].tick));
 
         // Update interest in this I/O handle.
         if was_empty {
-            Reactor::get().poller.modify(
+            crate::reactor::Reactor::get().0.poller.modify(
                 self.raw,
                 Event {
                     key: self.key,
@@ -608,7 +525,7 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
                     _marker: PhantomData,
                 });
                 *index = Some(i);
-                *ticks = Some((Reactor::get().ticker(), state[*dir].tick));
+                *ticks = Some((crate::reactor::Reactor::get().ticker(), state[*dir].tick));
                 i
             }
         };
@@ -616,7 +533,7 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
 
         // Update interest in this I/O handle.
         if was_empty {
-            Reactor::get().poller.modify(
+            crate::reactor::Reactor::get().0.poller.modify(
                 handle.borrow().source.raw,
                 Event {
                     key: handle.borrow().source.key,

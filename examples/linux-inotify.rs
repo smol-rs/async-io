@@ -6,7 +6,7 @@
 //! cargo run --example linux-inotify
 //! ```
 
-#[cfg(target_os = "linux")]
+#[cfg(all(feature = "io", target_os = "linux"))]
 fn main() -> std::io::Result<()> {
     use std::ffi::OsString;
     use std::io;
@@ -51,7 +51,7 @@ fn main() -> std::io::Result<()> {
     })
 }
 
-#[cfg(not(target_os = "linux"))]
+#[cfg(not(all(feature = "io", target_os = "linux")))]
 fn main() {
     println!("This example works only on Linux!");
 }

@@ -6,7 +6,7 @@
 //! cargo run --example windows-uds
 //! ```
 
-#[cfg(windows)]
+#[cfg(all(feature = "io", windows))]
 fn main() -> std::io::Result<()> {
     use std::path::PathBuf;
 
@@ -53,7 +53,7 @@ fn main() -> std::io::Result<()> {
     })
 }
 
-#[cfg(not(windows))]
+#[cfg(not(all(feature = "io", windows)))]
 fn main() {
     println!("This example works only on Windows!");
 }
