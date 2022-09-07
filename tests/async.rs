@@ -5,8 +5,10 @@ use std::io;
 use std::net::{Shutdown, TcpListener, TcpStream, UdpSocket};
 #[cfg(unix)]
 use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
+#[cfg(feature = "timer")]
 use std::sync::Arc;
 use std::thread;
+#[cfg(feature = "timer")]
 use std::time::Duration;
 
 use async_io::Async;
