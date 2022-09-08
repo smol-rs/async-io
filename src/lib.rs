@@ -96,12 +96,6 @@ fn duration_max() -> Duration {
     Duration::new(std::u64::MAX, 1_000_000_000 - 1)
 }
 
-fn instant_max() -> Instant {
-    // In order to ensure this point in time is never reached, it
-    // is put 30 years into the future.
-    Instant::now() + Duration::from_secs(86400 * 365 * 30)
-}
-
 /// A future or stream that emits timed events.
 ///
 /// Timers are futures that output a single [`Instant`] when they fire.
@@ -209,11 +203,9 @@ impl Timer {
     /// # });
     /// ```
     pub fn after(duration: Duration) -> Timer {
-        Timer::at(
-            Instant::now()
-                .checked_add(duration)
-                .unwrap_or_else(instant_max),
-        )
+        Instant::now()
+            .checked_add(duration)
+            .map_or_else(Timer::never, Timer::at)
     }
 
     /// Creates a timer that emits an event once at the given time instant.
@@ -250,12 +242,9 @@ impl Timer {
     /// # });
     /// ```
     pub fn interval(period: Duration) -> Timer {
-        Timer::interval_at(
-            Instant::now()
-                .checked_add(period)
-                .unwrap_or_else(instant_max),
-            period,
-        )
+        Instant::now()
+            .checked_add(period)
+            .map_or_else(Timer::never, |at| Timer::interval_at(at, period))
     }
 
     /// Creates a timer that emits events periodically, starting at `start`.
@@ -299,11 +288,14 @@ impl Timer {
     /// # });
     /// ```
     pub fn set_after(&mut self, duration: Duration) {
-        self.set_at(
-            Instant::now()
-                .checked_add(duration)
-                .unwrap_or_else(instant_max),
-        );
+        match Instant::now().checked_add(duration) {
+            Some(instant) => self.set_at(instant),
+            None => {
+                // Overflow to never going off.
+                self.clear();
+                self.when = None;
+            }
+        }
     }
 
     /// Sets the timer to emit an event once at the given time instant.
@@ -327,10 +319,7 @@ impl Timer {
     /// # });
     /// ```
     pub fn set_at(&mut self, instant: Instant) {
-        if let (Some(when), Some((id, _))) = (self.when, self.id_and_waker.as_ref()) {
-            // Deregister the timer from the reactor.
-            Reactor::get().remove_timer(when, *id);
-        }
+        self.clear();
 
         // Update the timeout.
         self.when = Some(instant);
@@ -362,12 +351,14 @@ impl Timer {
     /// # });
     /// ```
     pub fn set_interval(&mut self, period: Duration) {
-        self.set_interval_at(
-            Instant::now()
-                .checked_add(period)
-                .unwrap_or_else(instant_max),
-            period,
-        );
+        match Instant::now().checked_add(period) {
+            Some(instant) => self.set_interval_at(instant, period),
+            None => {
+                // Overflow to never going off.
+                self.clear();
+                self.when = None;
+            }
+        }
     }
 
     /// Sets the timer to emit events periodically, starting at `start`.
@@ -392,10 +383,7 @@ impl Timer {
     /// # });
     /// ```
     pub fn set_interval_at(&mut self, start: Instant, period: Duration) {
-        if let (Some(when), Some((id, _))) = (self.when, self.id_and_waker.as_ref()) {
-            // Deregister the timer from the reactor.
-            Reactor::get().remove_timer(when, *id);
-        }
+        self.clear();
 
         self.when = Some(start);
         self.period = period;
@@ -403,6 +391,14 @@ impl Timer {
         if let Some((id, waker)) = self.id_and_waker.as_mut() {
             // Re-register the timer with the new timeout.
             *id = Reactor::get().insert_timer(start, waker);
+        }
+    }
+
+    /// Helper function to clear the current timer.
+    fn clear(&mut self) {
+        if let (Some(when), Some((id, _))) = (self.when, self.id_and_waker.as_ref()) {
+            // Deregister the timer from the reactor.
+            Reactor::get().remove_timer(when, *id);
         }
     }
 }
