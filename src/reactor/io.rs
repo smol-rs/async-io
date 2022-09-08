@@ -12,6 +12,7 @@ use std::os::unix::io::RawFd;
 use std::os::windows::io::RawSocket;
 use std::panic;
 use std::pin::Pin;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
@@ -35,6 +36,14 @@ pub(crate) struct Reactor {
     /// Registered sources.
     sources: Mutex<Slab<Arc<Source>>>,
 
+    /// Ticker bumped before polling.
+    ///
+    /// This is useful for checking what is the current "round" of `ReactorLock::react()` when
+    /// synchronizing things in `Source::readable()` and `Source::writable()`. Both of those
+    /// methods must make sure they don't receive stale I/O events - they only accept events from a
+    /// fresh "round" of `ReactorLock::react()`.
+    ticker: AtomicUsize,
+
     /// Temporary storage for I/O events when polling the reactor.
     ///
     /// Holding a lock on this event list implies the exclusive right to poll I/O.
@@ -50,6 +59,7 @@ impl Reactor {
         Reactor {
             poller: Poller::new().expect("cannot initialize I/O event notification"),
             sources: Mutex::new(Slab::new()),
+            ticker: AtomicUsize::new(0),
             events: Mutex::new(Vec::new()),
             timers: Timers::new(),
         }
@@ -57,7 +67,7 @@ impl Reactor {
 
     /// Returns the current ticker.
     pub(crate) fn ticker(&self) -> usize {
-        self.timers.ticker()
+        self.ticker.load(Ordering::SeqCst)
     }
 
     /// Registers an I/O source in the reactor.
@@ -144,7 +154,11 @@ impl ReactorLock<'_> {
         let timeout = self.reactor.timers.timeout_duration(timeout, &mut wakers);
 
         // Bump the ticker before polling I/O.
-        let tick = self.reactor.timers.bump_ticker();
+        let tick = self
+            .reactor
+            .ticker
+            .fetch_add(1, Ordering::SeqCst)
+            .wrapping_add(1);
 
         self.events.clear();
 

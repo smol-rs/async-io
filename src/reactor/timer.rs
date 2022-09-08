@@ -29,14 +29,6 @@ pub(crate) struct Reactor {
     /// this queue. Timers actually get processed when the queue fills up or the reactor is polled.
     timer_ops: ConcurrentQueue<TimerOp>,
 
-    /// Ticker bumped before polling.
-    ///
-    /// This is useful for checking what is the current "round" of `ReactorLock::react()` when
-    /// synchronizing things in `Source::readable()` and `Source::writable()`. Both of those
-    /// methods must make sure they don't receive stale I/O events - they only accept events from a
-    /// fresh "round" of `ReactorLock::react()`.
-    ticker: AtomicUsize,
-
     /// The object used to unpark the reactor.
     ///
     /// Not needed when I/O is available since we block on `polling` instead.
@@ -52,29 +44,18 @@ pub(crate) struct Reactor {
 
 impl Reactor {
     /// Create a new `Reactor`.
-    pub(crate) fn new() -> Reactor { 
+    pub(crate) fn new() -> Reactor {
         #[cfg(target_family = "wasm")]
         let (parker, unparker) = pair();
 
         Reactor {
             timers: Mutex::new(BTreeMap::new()),
             timer_ops: ConcurrentQueue::bounded(1000),
-            ticker: AtomicUsize::new(0),
             #[cfg(target_family = "wasm")]
             unparker,
             #[cfg(target_family = "wasm")]
             parker: Mutex::new(parker),
         }
-    }
-
-    /// Returns the current ticker.
-    pub(crate) fn ticker(&self) -> usize {
-        self.ticker.load(Ordering::SeqCst)
-    }
-
-    /// Bump the current ticker and return the new value.
-    pub(crate) fn bump_ticker(&self) -> usize {
-        self.ticker.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
     }
 
     /// Registers a timer in the reactor.
@@ -116,14 +97,6 @@ impl Reactor {
     #[cfg(target_family = "wasm")]
     pub(crate) fn notify(&self) {
         self.unparker.unpark();
-    }
-
-    /// Acquire a lock on the reactor.
-    #[cfg(target_family = "wasm")]
-    pub(crate) fn lock(&self) -> ReactorLock<'_> {
-        let reactor = self;
-        let parker = reactor.parker.lock().unwrap();
-        ReactorLock { reactor, parker }
     }
 
     /// Try to acquire a lock on the reactor.
@@ -224,9 +197,6 @@ impl ReactorLock<'_> {
         // Process the upcoming timers and determine the timeout duration.
         let mut wakers = vec![];
         let timeout = self.reactor.timeout_duration(timeout, &mut wakers);
-
-        // Bump the ticker.
-        self.reactor.bump_ticker();
 
         // Park the thread until either the timeout duration has elapsed or a timer is ready.
         let timers_ready = match timeout {

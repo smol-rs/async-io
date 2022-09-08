@@ -3,14 +3,16 @@ use std::future::Future;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
+#[cfg(not(target_family = "wasm"))]
+use once_cell::sync::Lazy;
 #[cfg(not(target_family = "wasm"))]
 use std::sync::atomic::AtomicUsize;
 #[cfg(not(target_family = "wasm"))]
 use std::thread;
 #[cfg(not(target_family = "wasm"))]
-use once_cell::sync::Lazy;
+use std::time::Instant;
 
 use futures_lite::pin;
 use waker_fn::waker_fn;
@@ -22,7 +24,7 @@ use crate::reactor::Reactor;
 static BLOCK_ON_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Unparker for the "async-io" thread.
-/// 
+///
 /// The thread is not available on WASM.
 #[cfg(not(target_family = "wasm"))]
 static UNPARKER: Lazy<parking::Unparker> = Lazy::new(|| {
@@ -144,7 +146,9 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
             if u.unpark() {
                 // Check if waking from another thread and if currently blocked on I/O.
                 // Always wake up on WASM.
-                if cfg!(target_family = "wasm") || (!IO_POLLING.with(Cell::get) && io_blocked.load(Ordering::SeqCst)) {
+                if cfg!(target_family = "wasm")
+                    || (!IO_POLLING.with(Cell::get) && io_blocked.load(Ordering::SeqCst))
+                {
                     Reactor::get().notify();
                 }
             }
@@ -181,6 +185,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         // Try grabbing a lock on the reactor to wait on I/O.
         if let Some(mut reactor_lock) = Reactor::get().try_lock() {
             // Record the instant at which the lock was grabbed.
+            #[cfg(not(target_family = "wasm"))]
             let start = Instant::now();
 
             loop {

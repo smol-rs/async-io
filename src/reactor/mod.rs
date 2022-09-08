@@ -42,6 +42,7 @@ impl Reactor {
     }
 
     /// Returns the current ticker.
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn ticker(&self) -> usize {
         self.0.ticker()
     }
@@ -80,6 +81,7 @@ impl Reactor {
     }
 
     /// Locks the reactor, potentially blocking if the lock is held by another thread.
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn lock(&self) -> ReactorLock<'_> {
         ReactorLock(self.0.lock())
     }
