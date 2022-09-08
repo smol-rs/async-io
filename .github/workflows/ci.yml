@@ -30,9 +30,6 @@ jobs:
         if: startsWith(matrix.rust, 'nightly')
         run: cargo check -Z features=dev_dep
       - run: cargo test
-      - run: cargo test --no-default-features
-      - run: cargo test --no-default-features --features io
-      - run: cargo test --no-default-features --features timer
 
   # Copied from: https://github.com/rust-lang/stacker/pull/19/files
   windows_gnu:
@@ -89,6 +86,17 @@ jobs:
     #   if: startsWith(matrix.os, 'ubuntu')
     #   run: cross build --target x86_64-unknown-illumos
 
+  wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install Rust
+        run: rustup update stable && rustup default stable
+      - run: rustup target add wasm32-unknown-unknown
+      - name: Install wasm-pack
+        uses: taiki-e/install-action@wasm-pack
+      - run: wasm-pack test --headless --chrome
+
   msrv:
     runs-on: ubuntu-latest
     strategy:
@@ -101,9 +109,6 @@ jobs:
       - name: Install Rust
         run: rustup update ${{ matrix.rust }} && rustup default ${{ matrix.rust }}
       - run: cargo build
-      - run: cargo build --no-default-features
-      - run: cargo build --no-default-features --features io
-      - run: cargo build --no-default-features --features timer
 
   clippy:
     runs-on: ubuntu-latest

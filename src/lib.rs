@@ -57,17 +57,14 @@
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 
 mod driver;
-#[cfg(feature = "io")]
+#[cfg(not(target_family = "wasm"))]
 mod io;
-#[cfg(any(feature = "io", feature = "timer"))]
 mod reactor;
-#[cfg(feature = "timer")]
 mod timer;
 
 pub use driver::block_on;
-#[cfg(feature = "io")]
+#[cfg(not(target_family = "wasm"))]
 pub use io::Async;
-#[cfg(feature = "io")]
+#[cfg(not(target_family = "wasm"))]
 pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
-#[cfg(feature = "timer")]
 pub use timer::Timer;

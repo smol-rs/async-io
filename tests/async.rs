@@ -1,19 +1,15 @@
-#![cfg(feature = "io")]
+#![cfg(not(target_family = "wasm"))]
 
 use std::future::Future;
 use std::io;
 use std::net::{Shutdown, TcpListener, TcpStream, UdpSocket};
 #[cfg(unix)]
 use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
-#[cfg(feature = "timer")]
 use std::sync::Arc;
 use std::thread;
-#[cfg(feature = "timer")]
 use std::time::Duration;
 
-use async_io::Async;
-#[cfg(feature = "timer")]
-use async_io::Timer;
+use async_io::{Async, Timer};
 use futures_lite::{future, prelude::*};
 #[cfg(unix)]
 use tempfile::tempdir;
@@ -88,7 +84,6 @@ fn tcp_peek_read() -> io::Result<()> {
     })
 }
 
-#[cfg(feature = "timer")]
 #[test]
 fn tcp_reader_hangup() -> io::Result<()> {
     future::block_on(async {
@@ -111,7 +106,6 @@ fn tcp_reader_hangup() -> io::Result<()> {
     })
 }
 
-#[cfg(feature = "timer")]
 #[test]
 fn tcp_writer_hangup() -> io::Result<()> {
     future::block_on(async {
@@ -252,7 +246,6 @@ fn uds_send_to_recv_from() -> io::Result<()> {
     })
 }
 
-#[cfg(feature = "timer")]
 #[cfg(unix)]
 #[test]
 fn uds_reader_hangup() -> io::Result<()> {
@@ -271,7 +264,6 @@ fn uds_reader_hangup() -> io::Result<()> {
     })
 }
 
-#[cfg(feature = "timer")]
 #[cfg(unix)]
 #[test]
 fn uds_writer_hangup() -> io::Result<()> {
@@ -295,7 +287,6 @@ fn uds_writer_hangup() -> io::Result<()> {
 // Test that we correctly re-register interests after we've previously been
 // interested in both readable and writable events and then we get only one of
 // those (we need to re-register interest on the other).
-#[cfg(feature = "timer")]
 #[test]
 fn tcp_duplex() -> io::Result<()> {
     future::block_on(async {

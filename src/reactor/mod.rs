@@ -1,31 +1,28 @@
 use std::io::Result;
-#[cfg(all(feature = "io", unix))]
+#[cfg(unix)]
 use std::os::unix::io::RawFd;
-#[cfg(all(feature = "io", windows))]
+#[cfg(windows)]
 use std::os::windows::io::RawSocket;
-#[cfg(feature = "io")]
+#[cfg(not(target_family = "wasm"))]
 use std::sync::Arc;
 
-#[cfg(feature = "timer")]
 use std::task::Waker;
-#[cfg(feature = "timer")]
 use std::time::Instant;
 
 use once_cell::sync::Lazy;
 use std::time::Duration;
 
-#[cfg(feature = "timer")]
 mod timer;
 
 cfg_if::cfg_if! {
-    if #[cfg(feature = "io")] {
+    if #[cfg(target_family = "wasm")] {
+        use timer as sys;
+    } else {
         mod io;
         use io as sys;
 
         pub use io::{Readable, ReadableOwned, Writable, WritableOwned};
         pub(crate) use io::Source;
-    } else {
-        use timer as sys;
     }
 }
 
@@ -50,7 +47,7 @@ impl Reactor {
     }
 
     /// Registers an I/O source in the reactor.
-    #[cfg(feature = "io")]
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn insert_io(
         &self,
         #[cfg(unix)] raw: RawFd,
@@ -60,7 +57,7 @@ impl Reactor {
     }
 
     /// Deregisters an I/O source from the reactor.
-    #[cfg(feature = "io")]
+    #[cfg(not(target_family = "wasm"))]
     pub(crate) fn remove_io(&self, source: &Source) -> Result<()> {
         self.0.remove_io(source)
     }
@@ -68,13 +65,11 @@ impl Reactor {
     /// Registers a timer in the reactor.
     ///
     /// Returns the inserted timer's ID.
-    #[cfg(feature = "timer")]
     pub(crate) fn insert_timer(&self, when: Instant, waker: &Waker) -> usize {
         self.0.insert_timer(when, waker)
     }
 
     /// Deregisters a timer from the reactor.
-    #[cfg(feature = "timer")]
     pub(crate) fn remove_timer(&self, when: Instant, id: usize) {
         self.0.remove_timer(when, id)
     }

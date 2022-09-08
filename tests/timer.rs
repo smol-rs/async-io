@@ -1,5 +1,3 @@
-#![cfg(feature = "timer")]
-
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -8,6 +6,9 @@ use std::time::{Duration, Instant};
 
 use async_io::Timer;
 use futures_lite::{future, FutureExt, StreamExt};
+
+#[cfg(target_family = "wasm")]
+use wasm_bindgen_test::*;
 
 fn spawn<T: Send + 'static>(
     f: impl Future<Output = T> + Send + 'static,
@@ -23,6 +24,7 @@ fn spawn<T: Send + 'static>(
     Box::pin(async move { r.recv().await.unwrap() })
 }
 
+#[cfg_attr(target_family = "wasm", wasm_bindgen_test)]
 #[test]
 fn smoke() {
     future::block_on(async {
@@ -32,6 +34,7 @@ fn smoke() {
     });
 }
 
+#[cfg_attr(target_family = "wasm", wasm_bindgen_test)]
 #[test]
 fn interval() {
     future::block_on(async {

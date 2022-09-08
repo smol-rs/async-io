@@ -1,9 +1,9 @@
 use std::cmp;
 use std::collections::BTreeMap;
-#[cfg(not(feature = "io"))]
+#[cfg(target_family = "wasm")]
 use std::io;
 use std::mem;
-#[cfg(not(feature = "io"))]
+#[cfg(target_family = "wasm")]
 use std::panic;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
@@ -11,7 +11,7 @@ use std::task::Waker;
 use std::time::{Duration, Instant};
 
 use concurrent_queue::ConcurrentQueue;
-#[cfg(not(feature = "io"))]
+#[cfg(target_family = "wasm")]
 use parking::{pair, Parker, Unparker};
 
 /// A reactor that is capable of processing timers.
@@ -40,29 +40,29 @@ pub(crate) struct Reactor {
     /// The object used to unpark the reactor.
     ///
     /// Not needed when I/O is available since we block on `polling` instead.
-    #[cfg(not(feature = "io"))]
+    #[cfg(target_family = "wasm")]
     unparker: Unparker,
 
     /// The object used to park the reactor.
     ///
     /// The mutex used to hold this value implies the exclusive right to poll the reactor.
-    #[cfg(not(feature = "io"))]
+    #[cfg(target_family = "wasm")]
     parker: Mutex<Parker>,
 }
 
 impl Reactor {
     /// Create a new `Reactor`.
-    pub(crate) fn new() -> Reactor {
-        #[cfg(not(feature = "io"))]
+    pub(crate) fn new() -> Reactor { 
+        #[cfg(target_family = "wasm")]
         let (parker, unparker) = pair();
 
         Reactor {
             timers: Mutex::new(BTreeMap::new()),
             timer_ops: ConcurrentQueue::bounded(1000),
             ticker: AtomicUsize::new(0),
-            #[cfg(not(feature = "io"))]
+            #[cfg(target_family = "wasm")]
             unparker,
-            #[cfg(not(feature = "io"))]
+            #[cfg(target_family = "wasm")]
             parker: Mutex::new(parker),
         }
     }
@@ -113,13 +113,13 @@ impl Reactor {
     }
 
     /// Notify the thread blocked on this reactor.
-    #[cfg(not(feature = "io"))]
+    #[cfg(target_family = "wasm")]
     pub(crate) fn notify(&self) {
         self.unparker.unpark();
     }
 
     /// Acquire a lock on the reactor.
-    #[cfg(not(feature = "io"))]
+    #[cfg(target_family = "wasm")]
     pub(crate) fn lock(&self) -> ReactorLock<'_> {
         let reactor = self;
         let parker = reactor.parker.lock().unwrap();
@@ -127,7 +127,7 @@ impl Reactor {
     }
 
     /// Try to acquire a lock on the reactor.
-    #[cfg(not(feature = "io"))]
+    #[cfg(target_family = "wasm")]
     pub(crate) fn try_lock(&self) -> Option<ReactorLock<'_>> {
         let reactor = self;
         let parker = reactor.parker.try_lock().ok()?;
@@ -208,7 +208,7 @@ impl Reactor {
     }
 }
 
-#[cfg(not(feature = "io"))]
+#[cfg(target_family = "wasm")]
 pub(crate) struct ReactorLock<'a> {
     /// The reference to the reactor.
     reactor: &'a Reactor,
@@ -217,7 +217,7 @@ pub(crate) struct ReactorLock<'a> {
     parker: MutexGuard<'a, Parker>,
 }
 
-#[cfg(not(feature = "io"))]
+#[cfg(target_family = "wasm")]
 impl ReactorLock<'_> {
     /// Processes timers and then blocks until the next timer is ready.
     pub(crate) fn react(&self, timeout: Option<Duration>) -> io::Result<()> {

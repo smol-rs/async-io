@@ -1,6 +1,4 @@
-#[cfg(feature = "timer")]
 use super::timer::Reactor as Timers;
-#[cfg(feature = "timer")]
 use std::time::Instant;
 
 use std::borrow::Borrow;
@@ -14,8 +12,6 @@ use std::os::unix::io::RawFd;
 use std::os::windows::io::RawSocket;
 use std::panic;
 use std::pin::Pin;
-#[cfg(not(feature = "timer"))]
-use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 use std::time::Duration;
@@ -103,13 +99,11 @@ impl Reactor {
     /// Registers a timer in the reactor.
     ///
     /// Returns the inserted timer's ID.
-    #[cfg(feature = "timer")]
     pub(crate) fn insert_timer(&self, when: Instant, waker: &Waker) -> usize {
         self.timers.insert_timer(when, waker)
     }
 
     /// Deregisters a timer from the reactor.
-    #[cfg(feature = "timer")]
     pub(crate) fn remove_timer(&self, when: Instant, id: usize) {
         self.timers.remove_timer(when, id);
     }
@@ -217,40 +211,6 @@ impl ReactorLock<'_> {
         }
 
         res
-    }
-}
-
-/// Shim for `Timers` on targets with timers disabled.
-#[cfg(not(feature = "timer"))]
-struct Timers {
-    /// The ticker.
-    ticker: AtomicUsize,
-}
-
-#[cfg(not(feature = "timer"))]
-impl Timers {
-    fn new() -> Self {
-        Self {
-            ticker: AtomicUsize::new(0),
-        }
-    }
-
-    fn timeout_duration(
-        &self,
-        timeout: Option<Duration>,
-        _wakers: &mut Vec<Waker>,
-    ) -> Option<Duration> {
-        timeout
-    }
-
-    fn process_timers(&self, _wakers: &mut Vec<Waker>) {}
-
-    fn ticker(&self) -> usize {
-        self.ticker.load(Ordering::SeqCst)
-    }
-
-    fn bump_ticker(&self) -> usize {
-        self.ticker.fetch_add(1, Ordering::SeqCst).wrapping_add(1)
     }
 }
 
