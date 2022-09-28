@@ -19,15 +19,18 @@ name = "io"
 harness = false
 
 [dependencies]
+async-lock = { git = "https://github.com/smol-rs/async-lock.git" }
 concurrent-queue = "1.2.2"
 futures-lite = "1.11.0"
 log = "0.4.11"
-once_cell = "1.4.1"
 parking = "2.0.0"
 polling = "2.0.0"
 slab = "0.4.2"
 socket2 = { version = "0.4.2", features = ["all"] }
 waker-fn = "1.1.0"
+
+[target.'cfg(loom)'.dependencies]
+loom = "0.5"
 
 [build-dependencies]
 autocfg = "1"
