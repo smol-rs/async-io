@@ -19,7 +19,7 @@ name = "io"
 harness = false
 
 [dependencies]
-async-lock = { git = "https://github.com/smol-rs/async-lock.git" }
+async-lock = "2.6"
 concurrent-queue = "1.2.2"
 futures-lite = "1.11.0"
 log = "0.4.11"
