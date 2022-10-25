@@ -32,7 +32,7 @@ polling = { version = "2.0.0"}
 slab = { version = "0.4.2" }
 socket2 = { version = "0.4.2", features = ["all"] }
 
-[target.'cfg(target_family = "wasm")'.dependencies]
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
 wasm-bindgen-test = "0.2"
 
 [build-dependencies]

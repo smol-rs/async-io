@@ -6,7 +6,7 @@
 //! cargo run --example linux-timerfd
 //! ```
 
-#[cfg(all(feature = "io", target_os = "linux"))]
+#[cfg(target_os = "linux")]
 fn main() -> std::io::Result<()> {
     use std::io;
     use std::os::unix::io::AsRawFd;
@@ -41,7 +41,7 @@ fn main() -> std::io::Result<()> {
     })
 }
 
-#[cfg(not(all(feature = "io", target_os = "linux")))]
+#[cfg(not(target_os = "linux"))]
 fn main() {
     println!("This example works only on Linux!");
 }

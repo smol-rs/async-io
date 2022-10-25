@@ -35,8 +35,8 @@
 //!
 //! Connect to `example.com:80`, or time out after 10 seconds.
 //!
-#![cfg_attr(all(feature = "timer", feature = "io"), doc = "```")]
-#![cfg_attr(not(all(feature = "timer", feature = "io")), doc = "```no_compile")]
+#![cfg_attr(not(target_family = "wasm"), doc = "```")]
+#![cfg_attr(target_family = "wasm", doc = "```no_compile")]
 //! use async_io::{Async, Timer};
 //! use futures_lite::{future::FutureExt, io};
 //!

@@ -6,7 +6,7 @@
 //! cargo run --example unix-signal
 //! ```
 
-#[cfg(all(feature = "io", unix))]
+#[cfg(unix)]
 fn main() -> std::io::Result<()> {
     use std::os::unix::{io::AsRawFd, net::UnixStream};
 
@@ -27,7 +27,7 @@ fn main() -> std::io::Result<()> {
     })
 }
 
-#[cfg(not(all(feature = "io", unix)))]
+#[cfg(not(unix))]
 fn main() {
     println!("This example works only on Unix systems!");
 }
