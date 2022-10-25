@@ -1086,7 +1086,7 @@ impl<T: Read> AsyncRead for Async<T> {
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&mut *self).get_mut().read(buf) {
+            match (*self).get_mut().read(buf) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1100,7 +1100,7 @@ impl<T: Read> AsyncRead for Async<T> {
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&mut *self).get_mut().read_vectored(bufs) {
+            match (*self).get_mut().read_vectored(bufs) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1149,7 +1149,7 @@ impl<T: Write> AsyncWrite for Async<T> {
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&mut *self).get_mut().write(buf) {
+            match (*self).get_mut().write(buf) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1163,7 +1163,7 @@ impl<T: Write> AsyncWrite for Async<T> {
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match (&mut *self).get_mut().write_vectored(bufs) {
+            match (*self).get_mut().write_vectored(bufs) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1173,7 +1173,7 @@ impl<T: Write> AsyncWrite for Async<T> {
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         loop {
-            match (&mut *self).get_mut().flush() {
+            match (*self).get_mut().flush() {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
