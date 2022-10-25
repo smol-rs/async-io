@@ -16,9 +16,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
+use async_lock::OnceCell;
 use concurrent_queue::ConcurrentQueue;
 use futures_lite::ready;
-use once_cell::sync::Lazy;
 use polling::{Event, Poller};
 use slab::Slab;
 
@@ -67,7 +67,9 @@ pub(crate) struct Reactor {
 impl Reactor {
     /// Returns a reference to the reactor.
     pub(crate) fn get() -> &'static Reactor {
-        static REACTOR: Lazy<Reactor> = Lazy::new(|| {
+        static REACTOR: OnceCell<Reactor> = OnceCell::new();
+
+        REACTOR.get_or_init_blocking(|| {
             crate::driver::init();
             Reactor {
                 poller: Poller::new().expect("cannot initialize I/O event notification"),
@@ -77,8 +79,7 @@ impl Reactor {
                 timers: Mutex::new(BTreeMap::new()),
                 timer_ops: ConcurrentQueue::bounded(1000),
             }
-        });
-        &REACTOR
+        })
     }
 
     /// Returns the current ticker.

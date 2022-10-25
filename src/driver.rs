@@ -6,8 +6,8 @@ use std::task::{Context, Poll};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use async_lock::OnceCell;
 use futures_lite::pin;
-use once_cell::sync::Lazy;
 use waker_fn::waker_fn;
 
 use crate::reactor::Reactor;
@@ -16,25 +16,29 @@ use crate::reactor::Reactor;
 static BLOCK_ON_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Unparker for the "async-io" thread.
-static UNPARKER: Lazy<parking::Unparker> = Lazy::new(|| {
-    let (parker, unparker) = parking::pair();
+fn unparker() -> &'static parking::Unparker {
+    static UNPARKER: OnceCell<parking::Unparker> = OnceCell::new();
 
-    // Spawn a helper thread driving the reactor.
-    //
-    // Note that this thread is not exactly necessary, it's only here to help push things
-    // forward if there are no `Parker`s around or if `Parker`s are just idling and never
-    // parking.
-    thread::Builder::new()
-        .name("async-io".to_string())
-        .spawn(move || main_loop(parker))
-        .expect("cannot spawn async-io thread");
+    UNPARKER.get_or_init_blocking(|| {
+        let (parker, unparker) = parking::pair();
 
-    unparker
-});
+        // Spawn a helper thread driving the reactor.
+        //
+        // Note that this thread is not exactly necessary, it's only here to help push things
+        // forward if there are no `Parker`s around or if `Parker`s are just idling and never
+        // parking.
+        thread::Builder::new()
+            .name("async-io".to_string())
+            .spawn(move || main_loop(parker))
+            .expect("cannot spawn async-io thread");
+
+        unparker
+    })
+}
 
 /// Initializes the "async-io" thread.
 pub(crate) fn init() {
-    Lazy::force(&UNPARKER);
+    let _ = unparker();
 }
 
 /// The main loop for the "async-io" thread.
@@ -109,7 +113,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
     // Make sure to decrement `BLOCK_ON_COUNT` at the end and wake the "async-io" thread.
     let _guard = CallOnDrop(|| {
         BLOCK_ON_COUNT.fetch_sub(1, Ordering::SeqCst);
-        UNPARKER.unpark();
+        unparker().unpark();
     });
 
     // Parker and unparker for notifying the current thread.
@@ -205,7 +209,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
 
                     // Unpark the "async-io" thread in case no other thread is ready to start
                     // processing I/O events. This way we prevent a potential latency spike.
-                    UNPARKER.unpark();
+                    unparker().unpark();
 
                     // Wait for a notification.
                     p.park();
