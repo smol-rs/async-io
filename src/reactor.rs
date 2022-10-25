@@ -78,8 +78,6 @@ impl Reactor {
                 events: Mutex::new(Vec::new()),
                 timers: Mutex::new(BTreeMap::new()),
                 timer_ops: ConcurrentQueue::bounded(1000),
-                #[cfg(loom)]
-                mock_events: ConcurrentQueue::unbounded(),
             }
         })
     }
