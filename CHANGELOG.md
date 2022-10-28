@@ -1,6 +1,10 @@
+# Version 1.10.0
+
+- Remove the dependency on the `once_cell` crate to restore the MSRV. (#95)
+
 # Version 1.9.0
 
-- Fix panic on very large timeout. (#87)
+- Fix panic on very large durations. (#87)
 - Add `Timer::never` (#87)
 
 # Version 1.8.0
