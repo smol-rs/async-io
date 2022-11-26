@@ -1,3 +1,7 @@
+# Version 1.3.0
+
+- Remove the dependency on the `once_cell` crate to restore the MSRV. (#30)
+
 # Version 1.2.0
 
 - Return `Task` from `unblock` instead of returning opaque type. (#25)
