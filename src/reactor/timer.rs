@@ -8,7 +8,8 @@ use std::panic;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Mutex, MutexGuard};
 use std::task::Waker;
-use std::time::{Duration, Instant};
+
+use instant::{Duration, Instant};
 
 use concurrent_queue::ConcurrentQueue;
 #[cfg(target_family = "wasm")]

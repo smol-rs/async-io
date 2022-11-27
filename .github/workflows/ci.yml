@@ -91,11 +91,13 @@ jobs:
     steps:
       - uses: actions/checkout@v3
       - name: Install Rust
-        run: rustup update stable && rustup default stable
+        run: rustup update nightly && rustup default nightly
       - run: rustup target add wasm32-unknown-unknown
       - name: Install wasm-pack
         uses: taiki-e/install-action@wasm-pack
-      - run: wasm-pack test --headless --chrome
+      - run: wasm-pack test --headless --chrome -Zbuild-std
+        env:
+          RUSTFLAGS: "${{ env.RUSTFLAGS }} -Ctarget-feature=+atomics,+bulk-memory,+mutable-globals"
 
   msrv:
     runs-on: ubuntu-latest

@@ -1,10 +1,10 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll, Waker};
-use std::time::{Duration, Instant};
 
 use crate::reactor::Reactor;
 use futures_lite::Stream;
+use instant::{Duration, Instant};
 
 /// Use `Duration::MAX` once `duration_constants` are stabilized.
 fn duration_max() -> Duration {

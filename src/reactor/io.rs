@@ -15,9 +15,9 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
-use std::time::Duration;
 
 use futures_lite::ready;
+use instant::{Duration, Instant};
 use polling::{Event, Poller};
 use slab::Slab;
 

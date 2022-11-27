@@ -2,10 +2,10 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::{Duration, Instant};
 
 use async_io::Timer;
 use futures_lite::{future, FutureExt, StreamExt};
+use instant::{Duration, Instant};
 
 #[cfg(target_family = "wasm")]
 use wasm_bindgen_test::*;

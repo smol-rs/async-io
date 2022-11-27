@@ -7,10 +7,9 @@ use std::os::windows::io::RawSocket;
 use std::sync::Arc;
 
 use std::task::Waker;
-use std::time::Instant;
 
+use instant::{Duration, Instant};
 use once_cell::sync::Lazy;
-use std::time::Duration;
 
 mod timer;
 
