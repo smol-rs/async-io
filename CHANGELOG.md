@@ -1,3 +1,7 @@
+# Version 1.12.0
+
+- Switch from `winapi` to `windows-sys` (#102)
+
 # Version 1.11.0
 
 - Update `concurrent-queue` to v2. (#99)
