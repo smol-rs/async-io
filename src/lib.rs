@@ -681,17 +681,10 @@ impl<T: AsRawSocket> Async<T> {
 
         // Put the socket in non-blocking mode.
 
-        use winapi::ctypes;
-        use winapi::um::winsock2;
+        use windows_sys::Win32::Networking::WinSock;
 
-        let mut nonblocking = true as ctypes::c_ulong;
-        let res = unsafe {
-            winsock2::ioctlsocket(
-                sock as winsock2::SOCKET,
-                winsock2::FIONBIO,
-                &mut nonblocking,
-            )
-        };
+        let mut nonblocking = true as _;
+        let res = unsafe { WinSock::ioctlsocket(sock as _, WinSock::FIONBIO, &mut nonblocking) };
         if res != 0 {
             return Err(io::Error::last_os_error());
         }
