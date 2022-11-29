@@ -26,8 +26,10 @@ fn main() -> std::io::Result<()> {
         // When the OS timer fires, a 64-bit integer can be read from it.
         Async::new(timer)?
             .read_with(|t| {
-                // Safety: Assume `as_raw_fd()` returns a valid fd; when `AsFd`
-                // is stabilized, we can remove this unsafe and simplify.
+                // Safety: We assume `as_raw_fd()` returns a valid fd. When we
+                // can depend on Rust >= 1.63, where `AsFd` is stabilized, and
+                // when `TimerFd` implements it, we can remove this unsafe and
+                // simplify this.
                 let fd = unsafe { BorrowedFd::borrow_raw(t.as_raw_fd()) };
                 rustix::io::read(fd, &mut [0u8; 8]).map_err(io::Error::from)
             })

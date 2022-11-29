@@ -602,9 +602,9 @@ impl<T: AsRawFd> Async<T> {
 
         // Put the file descriptor in non-blocking mode.
         //
-        // Safety: We assume `as_raw_fd()` returns a valid fd. When
-        // `AsFd` is stabilized and `TimerFd` implements it, we can
-        // remove this unsafe and simplify this.
+        // Safety: We assume `as_raw_fd()` returns a valid fd. When we can
+        // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
+        // `TimerFd` implements it, we can remove this unsafe and simplify this.
         let fd = unsafe { rustix::fd::BorrowedFd::borrow_raw(raw) };
         let flags = rustix::fs::fcntl_getfl(fd)?;
         rustix::fs::fcntl_setfl(fd, flags | rustix::fs::OFlags::NONBLOCK)?;
@@ -679,6 +679,10 @@ impl<T: AsRawSocket> Async<T> {
         let borrowed = unsafe { rustix::fd::BorrowedFd::borrow_raw(sock) };
 
         // Put the socket in non-blocking mode.
+        //
+        // Safety: We assume `as_raw_socket()` returns a valid fd. When we can
+        // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
+        // `TimerFd` implements it, we can remove this unsafe and simplify this.
         rustix::io::ioctl_fionbio(borrowed, true)?;
 
         Ok(Async {
