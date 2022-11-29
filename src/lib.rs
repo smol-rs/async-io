@@ -676,16 +676,10 @@ impl<T: AsRawSocket> Async<T> {
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
         let sock = io.as_raw_socket();
+        let borrowed = unsafe { rustix::fd::BorrowedFd::borrow_raw(sock) };
 
         // Put the socket in non-blocking mode.
-
-        use windows_sys::Win32::Networking::WinSock;
-
-        let mut nonblocking = true as _;
-        let res = unsafe { WinSock::ioctlsocket(sock as _, WinSock::FIONBIO, &mut nonblocking) };
-        if res != 0 {
-            return Err(io::Error::last_os_error());
-        }
+        rustix::io::ioctl_fionbio(borrowed, true)?;
 
         Ok(Async {
             source: Reactor::get().insert_io(sock)?,

@@ -25,18 +25,13 @@ futures-lite = "1.11.0"
 log = "0.4.11"
 parking = "2.0.0"
 polling = "2.0.0"
+rustix = { version = "0.36.0", default-features = false, features = ["std", "fs"] }
 slab = "0.4.2"
 socket2 = { version = "0.4.2", features = ["all"] }
 waker-fn = "1.1.0"
 
 [build-dependencies]
 autocfg = "1"
-
-[target."cfg(unix)".dependencies]
-rustix = { version = "0.36.0", default-features = false, features = ["std", "fs"] }
-
-[target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.42", features = ["Win32_Networking_WinSock"] }
 
 [dev-dependencies]
 async-channel = "1"
