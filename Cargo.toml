@@ -33,7 +33,7 @@ waker-fn = "1.1.0"
 autocfg = "1"
 
 [target."cfg(unix)".dependencies]
-rustix = { version = "0.36.0", features = ["fs"] }
+rustix = { version = "0.36.0", default-features = false, features = ["std", "fs"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.42", features = ["Win32_Networking_WinSock"] }
