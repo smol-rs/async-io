@@ -598,21 +598,19 @@ impl<T: AsRawFd> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
-        let fd = io.as_raw_fd();
+        let raw = io.as_raw_fd();
 
         // Put the file descriptor in non-blocking mode.
-        unsafe {
-            let mut res = libc::fcntl(fd, libc::F_GETFL);
-            if res != -1 {
-                res = libc::fcntl(fd, libc::F_SETFL, res | libc::O_NONBLOCK);
-            }
-            if res == -1 {
-                return Err(io::Error::last_os_error());
-            }
-        }
+        //
+        // Safety: We assume `as_raw_fd()` returns a valid fd. When we can
+        // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
+        // `TimerFd` implements it, we can remove this unsafe and simplify this.
+        let fd = unsafe { rustix::fd::BorrowedFd::borrow_raw(raw) };
+        let flags = rustix::fs::fcntl_getfl(fd)?;
+        rustix::fs::fcntl_setfl(fd, flags | rustix::fs::OFlags::NONBLOCK)?;
 
         Ok(Async {
-            source: Reactor::get().insert_io(fd)?,
+            source: Reactor::get().insert_io(raw)?,
             io: Some(io),
         })
     }
@@ -678,16 +676,14 @@ impl<T: AsRawSocket> Async<T> {
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
         let sock = io.as_raw_socket();
+        let borrowed = unsafe { rustix::fd::BorrowedFd::borrow_raw(sock) };
 
         // Put the socket in non-blocking mode.
-
-        use windows_sys::Win32::Networking::WinSock;
-
-        let mut nonblocking = true as _;
-        let res = unsafe { WinSock::ioctlsocket(sock as _, WinSock::FIONBIO, &mut nonblocking) };
-        if res != 0 {
-            return Err(io::Error::last_os_error());
-        }
+        //
+        // Safety: We assume `as_raw_socket()` returns a valid fd. When we can
+        // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
+        // `TimerFd` implements it, we can remove this unsafe and simplify this.
+        rustix::io::ioctl_fionbio(borrowed, true)?;
 
         Ok(Async {
             source: Reactor::get().insert_io(sock)?,
@@ -1895,7 +1891,7 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
     match socket.connect(&addr) {
         Ok(_) => {}
         #[cfg(unix)]
-        Err(err) if err.raw_os_error() == Some(libc::EINPROGRESS) => {}
+        Err(err) if err.raw_os_error() == Some(rustix::io::Errno::INPROGRESS.raw_os_error()) => {}
         Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
         Err(err) => return Err(err),
     }
