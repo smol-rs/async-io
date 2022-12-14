@@ -102,6 +102,13 @@ fn duration_max() -> Duration {
 ///
 /// Timers are also streams that can output [`Instant`]s periodically.
 ///
+/// # Precision
+///
+/// There is a limit on the maximum precision that a `Timer` can provide. This limit is
+/// dependent on the current platform; for instance, on Windows, the maximum precision is
+/// about 16 milliseconds. Because of this limit, the timer may sleep for longer than the
+/// requested duration. It will never sleep for less.
+///
 /// # Examples
 ///
 /// Sleep for 1 second:
