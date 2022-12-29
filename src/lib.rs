@@ -277,6 +277,29 @@ impl Timer {
         }
     }
 
+    /// Indicates whether or not this timer will ever fire.
+    ///
+    /// [`never()`] will never fire, and timers created with [`after()`] or [`at()`] will fire
+    /// if the duration is not too large.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::Timer;
+    /// use std::time::Duration;
+    ///
+    /// // `never` will never fire.
+    /// assert!(!Timer::never().will_fire());
+    ///
+    /// // `after` will fire if the duration is not too large.
+    /// assert!(Timer::after(Duration::from_secs(1)).will_fire());
+    /// assert!(!Timer::after(Duration::MAX).will_fire());
+    /// ```
+    #[inline]
+    pub fn will_fire(&self) -> bool {
+        self.when.is_some()
+    }
+
     /// Sets the timer to emit an en event once after the given duration of time.
     ///
     /// Note that resetting a timer is different from creating a new timer because
