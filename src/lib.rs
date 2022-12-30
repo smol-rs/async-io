@@ -636,8 +636,23 @@ impl<T: AsRawFd> Async<T> {
         // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
         // `TimerFd` implements it, we can remove this unsafe and simplify this.
         let fd = unsafe { rustix::fd::BorrowedFd::borrow_raw(raw) };
-        let flags = rustix::fs::fcntl_getfl(fd)?;
-        rustix::fs::fcntl_setfl(fd, flags | rustix::fs::OFlags::NONBLOCK)?;
+        cfg_if::cfg_if! {
+            // ioctl(FIONBIO) sets the flag atomically, but we use this only on Linux
+            // for now, as with the standard library, because it seems to behave
+            // differently depending on the platform.
+            // https://github.com/rust-lang/rust/commit/efeb42be2837842d1beb47b51bb693c7474aba3d
+            // https://github.com/libuv/libuv/blob/e9d91fccfc3e5ff772d5da90e1c4a24061198ca0/src/unix/poll.c#L78-L80
+            // https://github.com/tokio-rs/mio/commit/0db49f6d5caf54b12176821363d154384357e70a
+            if #[cfg(target_os = "linux")] {
+                rustix::io::ioctl_fionbio(fd, true)?;
+            } else {
+                let previous = rustix::fs::fcntl_getfl(fd)?;
+                let new = previous | rustix::fs::OFlags::NONBLOCK;
+                if new != previous {
+                    rustix::fs::fcntl_setfl(fd, new)?;
+                }
+            }
+        }
 
         Ok(Async {
             source: Reactor::get().insert_io(raw)?,
