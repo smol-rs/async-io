@@ -23,12 +23,12 @@ async-lock = "2.6"
 cfg-if = "1"
 concurrent-queue = "2"
 futures-lite = "1.11.0"
-log = "0.4.11"
 parking = "2.0.0"
 polling = "2.0.0"
 rustix = { version = "0.36.0", default-features = false, features = ["std", "fs"] }
 slab = "0.4.2"
 socket2 = { version = "0.4.2", features = ["all"] }
+tracing = { version = "0.1.37", default-features = false }
 waker-fn = "1.1.0"
 
 [build-dependencies]
