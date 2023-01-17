@@ -476,7 +476,7 @@ impl Source {
             dir,
             ticks: None,
             index: None,
-            _guard: None,
+            _capture: PhantomData,
         }
     }
 }
@@ -566,7 +566,7 @@ struct Ready<H: Borrow<crate::Async<T>>, T> {
     dir: usize,
     ticks: Option<(usize, usize)>,
     index: Option<usize>,
-    _guard: Option<RemoveOnDrop<H, T>>,
+    _capture: PhantomData<Box<T>>,
 }
 
 impl<H: Borrow<crate::Async<T>>, T> Unpin for Ready<H, T> {}
@@ -580,7 +580,6 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
             dir,
             ticks,
             index,
-            _guard,
             ..
         } = &mut *self;
 
@@ -602,12 +601,6 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
             Some(i) => i,
             None => {
                 let i = state[*dir].wakers.insert(None);
-                *_guard = Some(RemoveOnDrop {
-                    handle: handle.clone(),
-                    dir: *dir,
-                    key: i,
-                    _marker: PhantomData,
-                });
                 *index = Some(i);
                 *ticks = Some((Reactor::get().ticker(), state[*dir].tick));
                 i
@@ -631,20 +624,15 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
     }
 }
 
-/// Remove waker when dropped.
-struct RemoveOnDrop<H: Borrow<crate::Async<T>>, T> {
-    handle: H,
-    dir: usize,
-    key: usize,
-    _marker: PhantomData<fn() -> T>,
-}
-
-impl<H: Borrow<crate::Async<T>>, T> Drop for RemoveOnDrop<H, T> {
+impl<H: Borrow<crate::Async<T>>, T> Drop for Ready<H, T> {
     fn drop(&mut self) {
-        let mut state = self.handle.borrow().source.state.lock().unwrap();
-        let wakers = &mut state[self.dir].wakers;
-        if wakers.contains(self.key) {
-            wakers.remove(self.key);
+        // Remove our waker when dropped.
+        if let Some(key) = self.index {
+            let mut state = self.handle.borrow().source.state.lock().unwrap();
+            let wakers = &mut state[self.dir].wakers;
+            if wakers.contains(key) {
+                wakers.remove(key);
+            }
         }
     }
 }
