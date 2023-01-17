@@ -566,7 +566,7 @@ struct Ready<H: Borrow<crate::Async<T>>, T> {
     dir: usize,
     ticks: Option<(usize, usize)>,
     index: Option<usize>,
-    _capture: PhantomData<Box<T>>,
+    _capture: PhantomData<fn() -> T>,
 }
 
 impl<H: Borrow<crate::Async<T>>, T> Unpin for Ready<H, T> {}
