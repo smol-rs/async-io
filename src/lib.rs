@@ -68,13 +68,13 @@ use std::time::{Duration, Instant};
 use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
 #[cfg(unix)]
 use std::{
-    os::unix::io::{AsRawFd, RawFd},
+    os::unix::io::{AsRawFd, AsRawFd as AsRaw, RawFd},
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
 
 #[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, RawSocket};
+use std::os::windows::io::{AsRawSocket, AsRawSocket as AsRaw, RawSocket};
 #[cfg(all(not(async_io_no_io_safety), windows))]
 use std::os::windows::io::{AsSocket, BorrowedSocket, OwnedSocket};
 
@@ -770,6 +770,89 @@ impl<T: Into<OwnedSocket>> TryFrom<Async<T>> for OwnedSocket {
 }
 
 impl<T> Async<T> {
+    /// Maps this I/O source to a different kind if I/O handle.
+    ///
+    /// A common use case involves wrapping an I/O source, such as a `TcpStream`, into a different kind
+    /// of handle, such as an `enum` matches between that `TcpStream` and another source. This function
+    /// provides a solution for this mapping without needing to deregister and re-register the I/O
+    /// source.
+    ///
+    /// This function assumes that the new I/O handle represents the exact same kind of source as the
+    /// existing one. To clarify, if `as_raw_*()` is called on both the old and new sources, it should
+    /// return the same value. The logic error if this is not true is unspecified, but it will
+    /// never result in undefined behavior. This could include panics, incorrect results, aborts,
+    /// memory leaks and hangs.
+    ///
+    /// # Example
+    ///
+    /// ```no_run
+    /// use async_io::Async;
+    /// use std::net::{TcpStream, UdpSocket};
+    ///
+    /// #[cfg(unix)]
+    /// use std::os::unix::io::{AsRawFd, RawFd};
+    /// #[cfg(windows)]
+    /// use std::os::windows::io::{AsRawSocket, RawSocket};
+    ///
+    /// /// An `enum` combining a `TcpStream` and a `UdpSocket`.
+    /// #[derive(Debug)]
+    /// enum StreamOrDatagram {
+    ///     Stream(TcpStream),
+    ///     Datagram(UdpSocket),
+    /// }
+    ///
+    /// // Appropriate AsRaw* implementations.
+    /// #[cfg(unix)]
+    /// impl AsRawFd for StreamOrDatagram {
+    ///     fn as_raw_fd(&self) -> RawFd {
+    ///         match self {
+    ///             StreamOrDatagram::Stream(stream) => stream.as_raw_fd(),
+    ///             StreamOrDatagram::Datagram(socket) => socket.as_raw_fd(),
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// #[cfg(windows)]
+    /// impl AsRawSocket for StreamOrDatagram {
+    ///     fn as_raw_socket(&self) -> RawSocket {
+    ///         match self {
+    ///             StreamOrDatagram::Stream(stream) => stream.as_raw_socket(),
+    ///             StreamOrDatagram::Datagram(socket) => socket.as_raw_socket(),
+    ///         }
+    ///     }
+    /// }
+    ///
+    /// // Function that takes `Async<StreamOrDatagram>` and does something.
+    /// async fn do_something(io: Async<StreamOrDatagram>) {
+    /// #    let _ = io;
+    ///      /* ... */
+    /// }
+    /// # fn use_stream() -> bool { true }
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// // Either load a `TcpStream` or a `UdpSocket` from somewhere.
+    /// let io = if use_stream() {
+    ///     let stream = Async::<TcpStream>::connect(([127, 0, 0, 1], 8080)).await?;
+    ///     stream.map_same_handle(StreamOrDatagram::Stream)?
+    /// } else {
+    ///     let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 8080))?;
+    ///     socket.map_same_handle(StreamOrDatagram::Datagram)?
+    /// };
+    ///
+    /// // Use the `Async<StreamOrDatagram>` in a function.
+    /// do_something(io).await;
+    /// # std::io::Result::Ok(())
+    /// # });
+    /// ```
+    pub fn map_same_handle<U: AsRaw>(mut self, f: impl FnOnce(T) -> U) -> io::Result<Async<U>> {
+        let io = self.io.take().unwrap();
+
+        Ok(Async {
+            source: self.source.clone(),
+            io: Some(f(io)),
+        })
+    }
+
     /// Gets a reference to the inner I/O handle.
     ///
     /// # Examples
