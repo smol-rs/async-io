@@ -81,7 +81,7 @@ use std::os::windows::io::{AsSocket, BorrowedSocket, OwnedSocket};
 use futures_lite::io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
 use futures_lite::{future, pin, ready};
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+use rustix::net::{AddressFamily, Protocol, SocketAddrAny, SocketFlags, SocketType};
 
 use crate::reactor::{Reactor, Source};
 
@@ -659,23 +659,7 @@ impl<T: AsRawFd> Async<T> {
         // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
         // `TimerFd` implements it, we can remove this unsafe and simplify this.
         let fd = unsafe { rustix::fd::BorrowedFd::borrow_raw(raw) };
-        cfg_if::cfg_if! {
-            // ioctl(FIONBIO) sets the flag atomically, but we use this only on Linux
-            // for now, as with the standard library, because it seems to behave
-            // differently depending on the platform.
-            // https://github.com/rust-lang/rust/commit/efeb42be2837842d1beb47b51bb693c7474aba3d
-            // https://github.com/libuv/libuv/blob/e9d91fccfc3e5ff772d5da90e1c4a24061198ca0/src/unix/poll.c#L78-L80
-            // https://github.com/tokio-rs/mio/commit/0db49f6d5caf54b12176821363d154384357e70a
-            if #[cfg(target_os = "linux")] {
-                rustix::io::ioctl_fionbio(fd, true)?;
-            } else {
-                let previous = rustix::fs::fcntl_getfl(fd)?;
-                let new = previous | rustix::fs::OFlags::NONBLOCK;
-                if new != previous {
-                    rustix::fs::fcntl_setfl(fd, new)?;
-                }
-            }
-        }
+        set_nonblocking(fd)?;
 
         Ok(Async {
             source: Reactor::get().insert_io(raw)?,
@@ -751,7 +735,7 @@ impl<T: AsRawSocket> Async<T> {
         // Safety: We assume `as_raw_socket()` returns a valid fd. When we can
         // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
         // `TimerFd` implements it, we can remove this unsafe and simplify this.
-        rustix::io::ioctl_fionbio(borrowed, true)?;
+        set_nonblocking(fd)?;
 
         Ok(Async {
             source: Reactor::get().insert_io(sock)?,
@@ -1386,10 +1370,26 @@ impl Async<TcpStream> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub async fn connect<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<TcpStream>> {
+        use rustix::net::{SocketAddrV4, SocketAddrV6};
+
         // Begin async connect.
         let addr = addr.into();
-        let domain = Domain::for_address(addr);
-        let socket = connect(addr.into(), domain, Some(Protocol::TCP))?;
+        let (addr, domain) = match addr {
+            SocketAddr::V4(sv4) => (
+                SocketAddrAny::V4(SocketAddrV4::new(sv4.ip().octets().into(), sv4.port())),
+                AddressFamily::INET,
+            ),
+            SocketAddr::V6(sv6) => (
+                SocketAddrAny::V6(SocketAddrV6::new(
+                    sv6.ip().octets().into(),
+                    sv6.port(),
+                    sv6.flowinfo(),
+                    sv6.scope_id(),
+                )),
+                AddressFamily::INET6,
+            ),
+        };
+        let socket = connect(&addr, domain, Some(Protocol::TCP))?;
         let stream = Async::new(TcpStream::from(socket))?;
 
         // The stream becomes writable when connected.
@@ -1717,8 +1717,14 @@ impl Async<UnixStream> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub async fn connect<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixStream>> {
+        use rustix::net::SocketAddrUnix;
+
         // Begin async connect.
-        let socket = connect(SockAddr::unix(path)?, Domain::UNIX, None)?;
+        let socket = connect(
+            &SocketAddrAny::Unix(SocketAddrUnix::new(path.as_ref())?),
+            AddressFamily::UNIX,
+            None,
+        )?;
         let stream = Async::new(UnixStream::from(socket))?;
 
         // The stream becomes writable when connected.
@@ -1928,8 +1934,14 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
     .await
 }
 
-fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Result<Socket> {
-    let sock_type = Type::STREAM;
+fn connect(
+    addr: &SocketAddrAny,
+    domain: AddressFamily,
+    protocol: Option<Protocol>,
+) -> io::Result<OwnedFd> {
+    let sock_type = SocketType::STREAM;
+    let sock_flags = SocketFlags::empty();
+
     #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -1941,9 +1953,14 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
         target_os = "openbsd"
     ))]
     // If we can, set nonblocking at socket creation for unix
-    let sock_type = sock_type.nonblocking();
-    // This automatically handles cloexec on unix, no_inherit on windows and nosigpipe on macos
-    let socket = Socket::new(domain, sock_type, protocol)?;
+    let sock_flags = sock_flags | SocketFlags::NONBLOCK;
+
+    // Create the socket.
+    let socket =
+        rustix::net::socket_with(domain, sock_type, sock_flags, protocol.unwrap_or_default())?;
+
+    // TODO: Set cloexec on Unix, nosigpipe on macos and no_inherit on windows
+
     #[cfg(not(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -1955,13 +1972,37 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
         target_os = "openbsd"
     )))]
     // If the current platform doesn't support nonblocking at creation, enable it after creation
-    socket.set_nonblocking(true)?;
-    match socket.connect(&addr) {
+    set_nonblocking(rustix::fd::AsFd::as_fd(&socket))?;
+
+    match rustix::net::connect_any(&socket, addr) {
         Ok(_) => {}
         #[cfg(unix)]
-        Err(err) if err.raw_os_error() == Some(rustix::io::Errno::INPROGRESS.raw_os_error()) => {}
+        Err(err) if err.raw_os_error() == rustix::io::Errno::INPROGRESS.raw_os_error() => {}
         Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-        Err(err) => return Err(err),
+        Err(err) => return Err(err.into()),
     }
+
     Ok(socket)
+}
+
+fn set_nonblocking(fd: rustix::fd::BorrowedFd<'_>) -> io::Result<()> {
+    cfg_if::cfg_if! {
+        // ioctl(FIONBIO) sets the flag atomically, but we use this only on Linux
+        // for now, as with the standard library, because it seems to behave
+        // differently depending on the platform.
+        // https://github.com/rust-lang/rust/commit/efeb42be2837842d1beb47b51bb693c7474aba3d
+        // https://github.com/libuv/libuv/blob/e9d91fccfc3e5ff772d5da90e1c4a24061198ca0/src/unix/poll.c#L78-L80
+        // https://github.com/tokio-rs/mio/commit/0db49f6d5caf54b12176821363d154384357e70a
+        if #[cfg(any(target_os = "linux", target_os = "windows"))] {
+            rustix::io::ioctl_fionbio(fd, true)?;
+        } else {
+            let previous = rustix::fs::fcntl_getfl(fd)?;
+            let new = previous | rustix::fs::OFlags::NONBLOCK;
+            if new != previous {
+                rustix::fs::fcntl_setfl(fd, new)?;
+            }
+        }
+    }
+
+    Ok(())
 }
