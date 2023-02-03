@@ -5,10 +5,6 @@ use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
 use std::mem;
-#[cfg(unix)]
-use std::os::unix::io::RawFd;
-#[cfg(windows)]
-use std::os::windows::io::RawSocket;
 use std::panic;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -21,6 +17,9 @@ use concurrent_queue::ConcurrentQueue;
 use futures_lite::ready;
 use polling::{Event, Poller};
 use slab::Slab;
+
+mod registration;
+pub use registration::Registration;
 
 const READ: usize = 0;
 const WRITE: usize = 1;
@@ -88,17 +87,13 @@ impl Reactor {
     }
 
     /// Registers an I/O source in the reactor.
-    pub(crate) fn insert_io(
-        &self,
-        #[cfg(unix)] raw: RawFd,
-        #[cfg(windows)] raw: RawSocket,
-    ) -> io::Result<Arc<Source>> {
+    pub(crate) fn insert_io(&self, raw: impl Into<Registration>) -> io::Result<Arc<Source>> {
         // Create an I/O source for this file descriptor.
         let source = {
             let mut sources = self.sources.lock().unwrap();
             let key = sources.vacant_entry().key();
             let source = Arc::new(Source {
-                raw,
+                registration: raw.into(),
                 key,
                 state: Default::default(),
             });
@@ -107,7 +102,7 @@ impl Reactor {
         };
 
         // Register the file descriptor.
-        if let Err(err) = self.poller.add(raw, Event::none(source.key)) {
+        if let Err(err) = source.registration.add(&self.poller, source.key) {
             let mut sources = self.sources.lock().unwrap();
             sources.remove(source.key);
             return Err(err);
@@ -120,7 +115,7 @@ impl Reactor {
     pub(crate) fn remove_io(&self, source: &Source) -> io::Result<()> {
         let mut sources = self.sources.lock().unwrap();
         sources.remove(source.key);
-        self.poller.delete(source.raw)
+        source.registration.delete(&self.poller)
     }
 
     /// Registers a timer in the reactor.
@@ -299,8 +294,8 @@ impl ReactorLock<'_> {
                         // e.g. we were previously interested in both readability and writability,
                         // but only one of them was emitted.
                         if !state[READ].is_empty() || !state[WRITE].is_empty() {
-                            self.reactor.poller.modify(
-                                source.raw,
+                            source.registration.modify(
+                                &self.reactor.poller,
                                 Event {
                                     key: source.key,
                                     readable: !state[READ].is_empty(),
@@ -341,13 +336,8 @@ enum TimerOp {
 /// A registered source of I/O events.
 #[derive(Debug)]
 pub(crate) struct Source {
-    /// Raw file descriptor on Unix platforms.
-    #[cfg(unix)]
-    pub(crate) raw: RawFd,
-
-    /// Raw socket handle on Windows.
-    #[cfg(windows)]
-    pub(crate) raw: RawSocket,
+    /// This source's registration into the reactor.
+    registration: Registration,
 
     /// The key of this source obtained during registration.
     key: usize,
@@ -436,8 +426,8 @@ impl Source {
 
         // Update interest in this I/O handle.
         if was_empty {
-            Reactor::get().poller.modify(
-                self.raw,
+            self.registration.modify(
+                &Reactor::get().poller,
                 Event {
                     key: self.key,
                     readable: !state[READ].is_empty(),
@@ -490,7 +480,7 @@ impl<T> Future for Readable<'_, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        log::trace!("readable: fd={}", self.0.handle.source.raw);
+        log::trace!("readable: fd={:?}", &self.0.handle.source.registration);
         Poll::Ready(Ok(()))
     }
 }
@@ -510,7 +500,10 @@ impl<T> Future for ReadableOwned<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        log::trace!("readable_owned: fd={}", self.0.handle.source.raw);
+        log::trace!(
+            "readable_owned: fd={:?}",
+            &self.0.handle.source.registration
+        );
         Poll::Ready(Ok(()))
     }
 }
@@ -530,7 +523,7 @@ impl<T> Future for Writable<'_, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        log::trace!("writable: fd={}", self.0.handle.source.raw);
+        log::trace!("writable: fd={:?}", &self.0.handle.source.registration);
         Poll::Ready(Ok(()))
     }
 }
@@ -550,7 +543,10 @@ impl<T> Future for WritableOwned<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        log::trace!("writable_owned: fd={}", self.0.handle.source.raw);
+        log::trace!(
+            "writable_owned: fd={:?}",
+            &self.0.handle.source.registration
+        );
         Poll::Ready(Ok(()))
     }
 }
@@ -610,8 +606,8 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
 
         // Update interest in this I/O handle.
         if was_empty {
-            Reactor::get().poller.modify(
-                handle.borrow().source.raw,
+            handle.borrow().source.registration.modify(
+                &Reactor::get().poller,
                 Event {
                     key: handle.borrow().source.key,
                     readable: !state[READ].is_empty(),
