@@ -2,7 +2,7 @@
 mod impl_ {
     use polling::{Event, Poller};
     use std::io::Result;
-    use std::os::windows::io::{AsRawSocket, RawSocket};
+    use std::os::windows::io::RawSocket;
 
     /// The raw registration into the reactor.
     #[derive(Debug)]
@@ -16,7 +16,7 @@ mod impl_ {
         fn from(raw: RawSocket) -> Self {
             Self { raw }
         }
-    }
+    } 
 
     impl Registration {
         /// Registers the object into the reactor.
@@ -53,7 +53,7 @@ mod impl_ {
     use polling::{Event, PollMode, Poller};
 
     use std::io::Result;
-    use std::os::unix::io::{AsRawFd, RawFd};
+    use std::os::unix::io::RawFd;
     use std::process::Child;
 
     /// The raw registration into the reactor.
@@ -76,16 +76,7 @@ mod impl_ {
         fn from(raw: RawFd) -> Self {
             Self::Fd(raw)
         }
-    }
-
-    impl AsRawFd for Registration {
-        fn as_raw_fd(&self) -> RawFd {
-            match self {
-                Self::Fd(raw) => *raw,
-                _ => panic!("not a file descriptor"),
-            }
-        }
-    }
+    } 
 
     impl From<Signal> for Registration {
         fn from(signal: Signal) -> Self {
@@ -157,7 +148,7 @@ mod impl_ {
 mod impl_ {
     use polling::{Event, Poller};
     use std::io::Result;
-    use std::os::unix::io::{AsRawFd, RawFd};
+    use std::os::unix::io::RawFd;
 
     /// The raw registration into the reactor.
     #[derive(Debug)]
@@ -170,12 +161,6 @@ mod impl_ {
     impl From<RawFd> for Registration {
         fn from(raw: RawFd) -> Self {
             Self { raw }
-        }
-    }
-
-    impl AsRawFd for Registration {
-        fn as_raw_fd(&self) -> RawFd {
-            self.raw
         }
     }
 
