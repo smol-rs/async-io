@@ -16,7 +16,7 @@ mod impl_ {
         fn from(raw: RawSocket) -> Self {
             Self { raw }
         }
-    } 
+    }
 
     impl Registration {
         /// Registers the object into the reactor.
@@ -76,7 +76,7 @@ mod impl_ {
         fn from(raw: RawFd) -> Self {
             Self::Fd(raw)
         }
-    } 
+    }
 
     impl From<Signal> for Registration {
         fn from(signal: Signal) -> Self {
