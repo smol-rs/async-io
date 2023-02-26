@@ -18,6 +18,10 @@ exclude = ["/.*"]
 name = "io"
 harness = false
 
+[[bench]]
+name = "timer"
+harness = false
+
 [dependencies]
 async-lock = "2.6"
 cfg-if = "1"
@@ -38,7 +42,7 @@ autocfg = "1"
 async-channel = "1"
 async-net = "1"
 blocking = "1"
-criterion = "0.4"
+criterion = { version = "0.4", default-features = false, features = ["cargo_bench_support"] }
 getrandom = "0.2.7"
 signal-hook = "0.3"
 tempfile = "3"
