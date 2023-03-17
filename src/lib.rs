@@ -18,7 +18,7 @@
 //! wake appropriate futures blocked on I/O or timers when they can be resumed.
 //!
 //! To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Android/illumos,
-//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows. That
+//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [IOCP] on Windows. That
 //! functionality is provided by the [`polling`] crate.
 //!
 //! However, note that you can also process I/O events and wake futures on any thread using the
@@ -28,7 +28,7 @@
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 //! [event ports]: https://illumos.org/man/port_create
-//! [wepoll]: https://github.com/piscisaureus/wepoll
+//! [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
 //! [`polling`]: https://docs.rs/polling
 //!
 //! # Examples
