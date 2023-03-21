@@ -4,6 +4,7 @@
 - Add a `will_fire` method to `Timer` to test if it will ever fire (#106)
 - Reduce syscalls in `Async::new` (#107)
 - Improve the drop ergonomics of `Readable` and `Writable` (#109)
+- Change the "`wepoll`" in documentation to "`IOCP`" (#116)
 
 [`rustix`]: https://crates.io/crates/rustix/
 [`libc`]: https://crates.io/crates/libc/
