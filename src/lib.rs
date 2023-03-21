@@ -18,7 +18,7 @@
 //! wake appropriate futures blocked on I/O or timers when they can be resumed.
 //!
 //! To wait for the next I/O event, the "async-io" thread uses [epoll] on Linux/Android/illumos,
-//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [wepoll] on Windows. That
+//! [kqueue] on macOS/iOS/BSD, [event ports] on illumos/Solaris, and [IOCP] on Windows. That
 //! functionality is provided by the [`polling`] crate.
 //!
 //! However, note that you can also process I/O events and wake futures on any thread using the
@@ -28,7 +28,7 @@
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 //! [event ports]: https://illumos.org/man/port_create
-//! [wepoll]: https://github.com/piscisaureus/wepoll
+//! [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
 //! [`polling`]: https://docs.rs/polling
 //!
 //! # Examples
@@ -502,12 +502,12 @@ impl Stream for Timer {
 /// Async adapter for I/O types.
 ///
 /// This type puts an I/O handle into non-blocking mode, registers it in
-/// [epoll]/[kqueue]/[event ports]/[wepoll], and then provides an async interface for it.
+/// [epoll]/[kqueue]/[event ports]/[IOCP], and then provides an async interface for it.
 ///
 /// [epoll]: https://en.wikipedia.org/wiki/Epoll
 /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 /// [event ports]: https://illumos.org/man/port_create
-/// [wepoll]: https://github.com/piscisaureus/wepoll
+/// [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
 ///
 /// # Caveats
 ///
@@ -606,7 +606,7 @@ impl<T: AsRawFd> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This method will put the handle in non-blocking mode and register it in
-    /// [epoll]/[kqueue]/[event ports]/[wepoll].
+    /// [epoll]/[kqueue]/[event ports]/[IOCP].
     ///
     /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
     /// `AsRawSocket`.
@@ -614,7 +614,7 @@ impl<T: AsRawFd> Async<T> {
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
     /// [event ports]: https://illumos.org/man/port_create
-    /// [wepoll]: https://github.com/piscisaureus/wepoll
+    /// [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
     ///
     /// # Examples
     ///
@@ -698,7 +698,7 @@ impl<T: AsRawSocket> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This method will put the handle in non-blocking mode and register it in
-    /// [epoll]/[kqueue]/[event ports]/[wepoll].
+    /// [epoll]/[kqueue]/[event ports]/[IOCP].
     ///
     /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
     /// `AsRawSocket`.
@@ -706,7 +706,7 @@ impl<T: AsRawSocket> Async<T> {
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
     /// [event ports]: https://illumos.org/man/port_create
-    /// [wepoll]: https://github.com/piscisaureus/wepoll
+    /// [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
     ///
     /// # Examples
     ///

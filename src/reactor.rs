@@ -29,7 +29,7 @@ const WRITE: usize = 1;
 ///
 /// There is only one global instance of this type, accessible by [`Reactor::get()`].
 pub(crate) struct Reactor {
-    /// Portable bindings to epoll/kqueue/event ports/wepoll.
+    /// Portable bindings to epoll/kqueue/event ports/IOCP.
     ///
     /// This is where I/O is polled, producing I/O events.
     poller: Poller,

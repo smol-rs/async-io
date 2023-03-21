@@ -10,7 +10,7 @@ rust-version = "1.48"
 description = "Async I/O and timers"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/async-io"
-keywords = ["mio", "epoll", "kqueue", "iocp", "wepoll"]
+keywords = ["mio", "epoll", "kqueue", "iocp"]
 categories = ["asynchronous", "network-programming", "os"]
 exclude = ["/.*"]
 
