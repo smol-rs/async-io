@@ -32,7 +32,7 @@ parking = "2.0.0"
 polling = "2.0.0"
 rustix = { version = "0.37.1", default-features = false, features = ["std", "fs"] }
 slab = "0.4.2"
-socket2 = { version = "0.4.2", features = ["all"] }
+socket2 = { version = "0.5.1", features = ["all"] }
 waker-fn = "1.1.0"
 
 [build-dependencies]
