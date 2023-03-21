@@ -1,4 +1,4 @@
-# Version 1.12.1
+# Version 1.13.0
 
 - Use [`rustix`] instead of [`libc`]/[`windows-sys`] for system calls (#76)
 - Add a `will_fire` method to `Timer` to test if it will ever fire (#106)
