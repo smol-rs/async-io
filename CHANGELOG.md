@@ -1,3 +1,15 @@
+# Version 1.13.0
+
+- Use [`rustix`] instead of [`libc`]/[`windows-sys`] for system calls (#76)
+- Add a `will_fire` method to `Timer` to test if it will ever fire (#106)
+- Reduce syscalls in `Async::new` (#107)
+- Improve the drop ergonomics of `Readable` and `Writable` (#109)
+- Change the "`wepoll`" in documentation to "`IOCP`" (#116)
+
+[`rustix`]: https://crates.io/crates/rustix/
+[`libc`]: https://crates.io/crates/libc/
+[`windows-sys`]: https://crates.io/crates/windows-sys/
+
 # Version 1.12.0
 
 - Switch from `winapi` to `windows-sys` (#102)
