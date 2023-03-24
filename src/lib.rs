@@ -132,7 +132,7 @@ fn duration_max() -> Duration {
 /// # futures_lite::future::block_on(async {
 /// let addrs = async_net::resolve("google.com:80")
 ///     .or(async {
-///         Timer::after(Duration::from_secs(10)).await;
+///         Timer::after(Duration::from_secs(1)).await;
 ///         Err(std::io::ErrorKind::TimedOut.into())
 ///     })
 ///     .await?;
