@@ -32,10 +32,10 @@ use std::os::unix::io::BorrowedFd;
 ///
 /// use async_io::os::unix::reactor_fd;
 ///
-/// my_runtime::register(reactor_fd());
+/// my_runtime::register(reactor_fd().unwrap());
 /// # mod my_runtime {
 /// #     use std::os::unix::io::BorrowedFd;
-/// #     fn register(_: BorrowedFd<'_>) {}
+/// #     pub fn register(_: BorrowedFd<'_>) {}
 /// # }
 /// ```
 #[cfg(not(async_io_no_io_safety))]
