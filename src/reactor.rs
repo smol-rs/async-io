@@ -222,17 +222,17 @@ impl Reactor {
     fn process_timer_ops(&self, timers: &mut MutexGuard<'_, BTreeMap<(Instant, usize), Waker>>) {
         // Process only as much as fits into the queue, or else this loop could in theory run
         // forever.
-        for _ in 0..self.timer_ops.capacity().unwrap() {
-            match self.timer_ops.pop() {
-                Ok(TimerOp::Insert(when, id, waker)) => {
+        self.timer_ops
+            .try_iter()
+            .take(self.timer_ops.capacity().unwrap())
+            .for_each(|op| match op {
+                TimerOp::Insert(when, id, waker) => {
                     timers.insert((when, id), waker);
                 }
-                Ok(TimerOp::Remove(when, id)) => {
+                TimerOp::Remove(when, id) => {
                     timers.remove(&(when, id));
                 }
-                Err(_) => break,
-            }
-        }
+            });
     }
 }
 
