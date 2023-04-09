@@ -282,10 +282,16 @@ impl Timer {
     /// [`never()`] will never fire, and timers created with [`after()`] or [`at()`] will fire
     /// if the duration is not too large.
     ///
+    /// [`never()`]: Timer::never()
+    /// [`after()`]: Timer::after()
+    /// [`at()`]: Timer::at()
+    ///
     /// # Examples
     ///
     /// ```
+    /// # futures_lite::future::block_on(async {
     /// use async_io::Timer;
+    /// use futures_lite::prelude::*;
     /// use std::time::Duration;
     ///
     /// // `never` will never fire.
@@ -294,6 +300,19 @@ impl Timer {
     /// // `after` will fire if the duration is not too large.
     /// assert!(Timer::after(Duration::from_secs(1)).will_fire());
     /// assert!(!Timer::after(Duration::MAX).will_fire());
+    ///
+    /// // However, once an `after` timer has fired, it will never fire again.
+    /// let mut t = Timer::after(Duration::from_secs(1));
+    /// assert!(t.will_fire());
+    /// (&mut t).await;
+    /// assert!(!t.will_fire());
+    ///
+    /// // Interval timers will fire periodically.
+    /// let mut t = Timer::interval(Duration::from_secs(1));
+    /// assert!(t.will_fire());
+    /// t.next().await;
+    /// assert!(t.will_fire());
+    /// # });
     /// ```
     #[inline]
     pub fn will_fire(&self) -> bool {
@@ -473,6 +492,8 @@ impl Stream for Timer {
                     // Register the timer in the reactor.
                     let id = Reactor::get().insert_timer(next, cx.waker());
                     this.id_and_waker = Some((id, cx.waker().clone()));
+                } else {
+                    this.when = None;
                 }
                 return Poll::Ready(Some(result_time));
             } else {
