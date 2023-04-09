@@ -7,7 +7,7 @@ use std::os::unix::io::BorrowedFd;
 ///
 /// This file descriptor is equivalent to the one used by the underlying epoll/kqueue/event ports
 /// instance for polling. The intention is that this file descriptor can be registered into an
-/// external runtime (like [`calloop`] or GLib) so that `async-io` can be seamlessly polled
+/// external runtime (like [`calloop`] or [GLib]) so that `async-io` can be seamlessly polled
 /// alongside the other runtime.
 ///
 /// Not every backend used on `unix` has an associated file descriptor, however. While epoll,
@@ -24,6 +24,9 @@ use std::os::unix::io::BorrowedFd;
 /// existing scheme for managing sources. The behavior resulting from this is not specified, but
 /// will not result in undefined behavior. This could include panics, incorrect results, aborts,
 /// memory leaks, and non-termination.
+///
+/// [`calloop`]: https://docs.rs/calloop
+/// [GLib]: https://en.wikipedia.org/wiki/GLib
 ///
 /// ## Example
 ///
