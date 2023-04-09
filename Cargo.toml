@@ -25,7 +25,7 @@ harness = false
 [dependencies]
 async-lock = "2.6"
 cfg-if = "1"
-concurrent-queue = "2"
+concurrent-queue = "2.2.0"
 futures-lite = "1.11.0"
 log = "0.4.11"
 parking = "2.0.0"
