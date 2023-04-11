@@ -1,15 +1,22 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use polling::{Event, Poller};
+
+use std::fmt;
 use std::io::Result;
 use std::os::unix::io::RawFd;
 
 /// The raw registration into the reactor.
-#[derive(Debug)]
 #[doc(hidden)]
 pub struct Registration {
     /// Raw file descriptor on Unix.
     raw: RawFd,
+}
+
+impl fmt::Debug for Registration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.raw, f)
+    }
 }
 
 impl From<RawFd> for Registration {

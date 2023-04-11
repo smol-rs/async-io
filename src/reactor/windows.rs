@@ -1,15 +1,21 @@
 // SPDX-License-Identifier: MIT OR Apache-2.0
 
 use polling::{Event, Poller};
+use std::fmt;
 use std::io::Result;
 use std::os::windows::io::RawSocket;
 
 /// The raw registration into the reactor.
-#[derive(Debug)]
 #[doc(hidden)]
 pub struct Registration {
     /// Raw socket handle on Windows.
     raw: RawSocket,
+}
+
+impl fmt::Debug for Registration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&self.raw, f)
+    }
 }
 
 impl From<RawSocket> for Registration {

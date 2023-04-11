@@ -5,6 +5,7 @@ use crate::os::kqueue::Signal;
 use polling::os::kqueue::{PollerKqueueExt, Process, ProcessOps, Signal as PollSignal};
 use polling::{Event, PollMode, Poller};
 
+use std::fmt;
 use std::io::Result;
 use std::os::unix::io::RawFd;
 use std::process::Child;
@@ -12,7 +13,6 @@ use std::process::Child;
 /// The raw registration into the reactor.
 ///
 /// This needs to be public, since it is technically exposed through the `QueueableSealed` trait.
-#[derive(Debug)]
 #[doc(hidden)]
 pub enum Registration {
     /// Raw file descriptor for readability/writability.
@@ -23,6 +23,16 @@ pub enum Registration {
 
     /// Process for process termination.
     Process(Child),
+}
+
+impl fmt::Debug for Registration {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Fd(raw) => fmt::Debug::fmt(raw, f),
+            Self::Signal(signal) => fmt::Debug::fmt(signal, f),
+            Self::Process(process) => fmt::Debug::fmt(process, f),
+        }
+    }
 }
 
 impl From<RawFd> for Registration {
