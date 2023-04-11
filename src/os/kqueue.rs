@@ -1,24 +1,33 @@
 //! Functionality that is only available for `kqueue`-based platforms.
 
-use super::__private::AsyncSealed;
-use __private::FilterSealed;
+use __private::QueueableSealed;
 
-use crate::reactor::{Reactor, Registration};
+use crate::reactor::{Reactor, Readable, Registration};
 use crate::Async;
 
-use std::io::Result;
+use std::convert::{TryFrom, TryInto};
+use std::future::Future;
+use std::io::{Error, Result};
+use std::os::unix::io::{AsRawFd, RawFd};
+use std::pin::Pin;
 use std::process::Child;
+use std::task::{Context, Poll};
 
-/// An extension trait for [`Async`](crate::Async) that provides the ability to register other
-/// queueable objects into the reactor.
+#[cfg(not(async_io_no_io_safety))]
+use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
+
+/// A wrapper around a queueable object that waits until it is ready.
 ///
 /// The underlying `kqueue` implementation can be used to poll for events besides file descriptor
 /// read/write readiness. This API makes these faculties available to the user.
 ///
-/// See the [`Filter`] trait and its implementors for objects that currently support being registered
+/// See the [`Queueable`] trait and its implementors for objects that currently support being registered
 /// into the reactor.
-pub trait AsyncKqueueExt<T: Filter>: AsyncSealed {
-    /// Create a new [`Async`](crate::Async) around a [`Filter`].
+#[derive(Debug)]
+pub struct Filter<T>(Async<T>);
+
+impl<T: Queueable> Filter<T> {
+    /// Create a new [`Filter`] around a [`Queueable`].
     ///
     /// # Examples
     ///
@@ -26,33 +35,183 @@ pub trait AsyncKqueueExt<T: Filter>: AsyncSealed {
     /// use std::process::Command;
     ///
     /// use async_io::Async;
-    /// use async_io::os::kqueue::{AsyncKqueueExt, Exit};
+    /// use async_io::os::kqueue::{Exit, Filter};
     ///
     /// // Create a new process to wait for.
     /// let mut child = Command::new("sleep").arg("5").spawn().unwrap();
     ///
     /// // Wrap the process in an `Async` object that waits for it to exit.
-    /// let process = Async::with_filter(Exit::new(child)).unwrap();
+    /// let process = Filter::new(Exit::new(child)).unwrap();
     ///
     /// // Wait for the process to exit.
     /// # async_io::block_on(async {
     /// process.readable().await.unwrap();
     /// # });
     /// ```
-    fn with_filter(filter: T) -> Result<Async<T>>;
-}
-
-impl<T: Filter> AsyncKqueueExt<T> for Async<T> {
-    fn with_filter(mut filter: T) -> Result<Async<T>> {
-        Ok(Async {
+    pub fn new(mut filter: T) -> Result<Self> {
+        Ok(Self(Async {
             source: Reactor::get().insert_io(filter.registration())?,
             io: Some(filter),
-        })
+        }))
+    }
+}
+
+impl<T: AsRawFd> AsRawFd for Filter<T> {
+    fn as_raw_fd(&self) -> RawFd {
+        self.0.as_raw_fd()
+    }
+}
+
+#[cfg(not(async_io_no_io_safety))]
+impl<T: AsFd> AsFd for Filter<T> {
+    fn as_fd(&self) -> BorrowedFd<'_> {
+        self.0.as_fd()
+    }
+}
+
+#[cfg(not(async_io_no_io_safety))]
+impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Filter<T> {
+    type Error = Error;
+
+    fn try_from(fd: OwnedFd) -> Result<Self> {
+        Ok(Self(Async::try_from(fd)?))
+    }
+}
+
+#[cfg(not(async_io_no_io_safety))]
+impl<T: Into<OwnedFd>> TryFrom<Filter<T>> for OwnedFd {
+    type Error = Error;
+
+    fn try_from(filter: Filter<T>) -> Result<Self> {
+        filter.0.try_into()
+    }
+}
+
+impl<T> Filter<T> {
+    /// Gets a reference to the underlying [`Queueable`] object.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::os::kqueue::{Exit, Filter};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+    /// let process = Filter::new(Exit::new(child)).unwrap();
+    /// let inner = process.get_ref();
+    /// # });
+    /// ```
+    pub fn get_ref(&self) -> &T {
+        self.0.get_ref()
+    }
+
+    /// Gets a mutable reference to the underlying [`Queueable`] object.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::os::kqueue::{Exit, Filter};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+    /// let mut process = Filter::new(Exit::new(child)).unwrap();
+    /// let inner = process.get_mut();
+    /// # });
+    /// ```
+    pub fn get_mut(&mut self) -> &mut T {
+        self.0.get_mut()
+    }
+
+    /// Unwraps the inner [`Queueable`] object.
+    ///
+    /// # Examples
+    ///
+    /// ```
+    /// use async_io::os::kqueue::{Exit, Filter};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
+    /// let process = Filter::new(Exit::new(child)).unwrap();
+    /// let inner = process.into_inner().unwrap();
+    /// # });
+    /// ```
+    pub fn into_inner(self) -> Result<T> {
+        self.0.into_inner()
+    }
+
+    /// Waits until the [`Queueable`] object is ready.
+    ///
+    /// This method completes when the underlying [`Queueable`] object has completed. See the documentation
+    /// for the [`Queueable`] object for more information.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::process::Command;
+    /// use async_io::os::kqueue::{Exit, Filter};
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let child = Command::new("sleep").arg("5").spawn()?;
+    /// let process = Filter::new(Exit::new(child))?;
+    ///
+    /// // Wait for the process to exit.
+    /// process.ready().await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub fn ready(&self) -> Ready<'_, T> {
+        Ready(self.0.readable())
+    }
+
+    /// Polls the I/O handle for readiness.
+    ///
+    /// When this method returns [`Poll::Ready`], that means that the OS has delivered a notification
+    /// that the underlying [`Queueable`] object is ready. See the documentation for the [`Queueable`]
+    /// object for more information.
+    ///
+    /// # Caveats
+    ///
+    /// Two different tasks should not call this method concurrently. Otherwise, conflicting tasks
+    /// will just keep waking each other in turn, thus wasting CPU time.
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use std::process::Command;
+    /// use async_io::os::kqueue::{Exit, Filter};
+    /// use futures_lite::future;
+    ///
+    /// # futures_lite::future::block_on(async {
+    /// let child = Command::new("sleep").arg("5").spawn()?;
+    /// let process = Filter::new(Exit::new(child))?;
+    ///
+    /// // Wait for the process to exit.
+    /// future::poll_fn(|cx| process.poll_ready(cx)).await?;
+    /// # std::io::Result::Ok(()) });
+    /// ```
+    pub fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<()>> {
+        self.0.poll_readable(cx)
+    }
+}
+
+/// Future for [`Filter::ready`].
+#[must_use = "futures do nothing unless you `.await` or poll them"]
+#[derive(Debug)]
+pub struct Ready<'a, T>(Readable<'a, T>);
+
+impl<T> Future for Ready<'_, T> {
+    type Output = Result<()>;
+
+    fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
+        Pin::new(&mut self.0).poll(cx)
     }
 }
 
 /// Objects that can be registered into the reactor via a [`Async`](crate::Async).
-pub trait Filter: FilterSealed {}
+///
+/// These objects represent other filters associated with the `kqueue` runtime aside from readability
+/// and writability. Rather than waiting on readable/writable, they wait on "readiness". This is
+/// typically used for signals and child process exits.
+pub trait Queueable: QueueableSealed {}
 
 /// An object representing a signal.
 ///
@@ -61,12 +220,12 @@ pub trait Filter: FilterSealed {}
 #[derive(Debug, Copy, Clone, Eq, PartialEq, PartialOrd, Ord, Hash)]
 pub struct Signal(pub i32);
 
-impl FilterSealed for Signal {
+impl QueueableSealed for Signal {
     fn registration(&mut self) -> Registration {
         (*self).into()
     }
 }
-impl Filter for Signal {}
+impl Queueable for Signal {}
 
 /// Wait for a child process to exit.
 ///
@@ -82,18 +241,18 @@ impl Exit {
     }
 }
 
-impl FilterSealed for Exit {
+impl QueueableSealed for Exit {
     fn registration(&mut self) -> Registration {
         self.0.take().expect("Cannot reregister child").into()
     }
 }
-impl Filter for Exit {}
+impl Queueable for Exit {}
 
 mod __private {
     use crate::reactor::Registration;
 
     #[doc(hidden)]
-    pub trait FilterSealed {
+    pub trait QueueableSealed {
         /// Get a registration object for this filter.
         fn registration(&mut self) -> Registration;
     }

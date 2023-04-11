@@ -11,10 +11,3 @@
     target_os = "dragonfly",
 ))]
 pub mod kqueue;
-
-mod __private {
-    #[doc(hidden)]
-    pub trait AsyncSealed {}
-
-    impl<T> AsyncSealed for crate::Async<T> {}
-}

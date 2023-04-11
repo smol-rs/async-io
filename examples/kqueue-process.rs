@@ -19,8 +19,7 @@
 fn main() -> std::io::Result<()> {
     use std::process::Command;
 
-    use async_io::os::kqueue::{AsyncKqueueExt, Exit};
-    use async_io::Async;
+    use async_io::os::kqueue::{Exit, Filter};
     use futures_lite::future;
 
     future::block_on(async {
@@ -31,10 +30,10 @@ fn main() -> std::io::Result<()> {
             .expect("failed to spawn process");
 
         // Wrap the process in an `Async` object that waits for it to exit.
-        let process = Async::with_filter(Exit::new(process))?;
+        let process = Filter::new(Exit::new(process))?;
 
         // Wait for the process to exit.
-        process.readable().await?;
+        process.ready().await?;
 
         Ok(())
     })
