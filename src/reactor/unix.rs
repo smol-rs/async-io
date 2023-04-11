@@ -20,6 +20,7 @@ impl fmt::Debug for Registration {
 }
 
 impl From<RawFd> for Registration {
+    #[inline]
     fn from(raw: RawFd) -> Self {
         Self { raw }
     }
@@ -27,16 +28,19 @@ impl From<RawFd> for Registration {
 
 impl Registration {
     /// Registers the object into the reactor.
+    #[inline]
     pub(crate) fn add(&self, poller: &Poller, token: usize) -> Result<()> {
         poller.add(self.raw, Event::none(token))
     }
 
     /// Re-registers the object into the reactor.
+    #[inline]
     pub(crate) fn modify(&self, poller: &Poller, interest: Event) -> Result<()> {
         poller.modify(self.raw, interest)
     }
 
     /// Deregisters the object from the reactor.
+    #[inline]
     pub(crate) fn delete(&self, poller: &Poller) -> Result<()> {
         poller.delete(self.raw)
     }
