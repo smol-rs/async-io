@@ -41,18 +41,6 @@ impl From<RawFd> for Registration {
     }
 }
 
-impl From<Signal> for Registration {
-    fn from(signal: Signal) -> Self {
-        Self::Signal(signal)
-    }
-}
-
-impl From<Child> for Registration {
-    fn from(process: Child) -> Self {
-        Self::Process(process)
-    }
-}
-
 impl Registration {
     /// Registers the object into the reactor.
     pub(crate) fn add(&self, poller: &Poller, token: usize) -> Result<()> {

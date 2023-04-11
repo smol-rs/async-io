@@ -26,6 +26,18 @@ use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
 #[derive(Debug)]
 pub struct Filter<T>(Async<T>);
 
+impl<T> AsRef<T> for Filter<T> {
+    fn as_ref(&self) -> &T {
+        self.0.as_ref()
+    }
+}
+
+impl<T> AsMut<T> for Filter<T> {
+    fn as_mut(&mut self) -> &mut T {
+        self.0.as_mut()
+    }
+}
+
 impl<T: Queueable> Filter<T> {
     /// Create a new [`Filter`] around a [`Queueable`].
     ///
@@ -33,8 +45,6 @@ impl<T: Queueable> Filter<T> {
     ///
     /// ```no_run
     /// use std::process::Command;
-    ///
-    /// use async_io::Async;
     /// use async_io::os::kqueue::{Exit, Filter};
     ///
     /// // Create a new process to wait for.
@@ -45,7 +55,7 @@ impl<T: Queueable> Filter<T> {
     ///
     /// // Wait for the process to exit.
     /// # async_io::block_on(async {
-    /// process.readable().await.unwrap();
+    /// process.ready().await.unwrap();
     /// # });
     /// ```
     pub fn new(mut filter: T) -> Result<Self> {
@@ -222,7 +232,7 @@ pub struct Signal(pub i32);
 
 impl QueueableSealed for Signal {
     fn registration(&mut self) -> Registration {
-        (*self).into()
+        Registration::Signal(*self)
     }
 }
 impl Queueable for Signal {}
@@ -243,7 +253,7 @@ impl Exit {
 
 impl QueueableSealed for Exit {
     fn registration(&mut self) -> Registration {
-        self.0.take().expect("Cannot reregister child").into()
+        Registration::Process(self.0.take().expect("Cannot reregister child"))
     }
 }
 impl Queueable for Exit {}
