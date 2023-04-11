@@ -18,8 +18,30 @@ use futures_lite::ready;
 use polling::{Event, Poller};
 use slab::Slab;
 
-mod registration;
-pub use registration::Registration;
+// Choose the proper implementation of `Registration` based on the target platform.
+cfg_if::cfg_if! {
+    if #[cfg(windows)] {
+        mod windows;
+        pub use windows::Registration;
+    } else if #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "openbsd",
+        target_os = "dragonfly",
+    ))] {
+        mod kqueue;
+        pub use kqueue::Registration;
+    } else if #[cfg(unix)] {
+        mod unix;
+        pub use unix::Registration;
+    } else {
+        compile_error!("unsupported platform");
+    }
+}
 
 const READ: usize = 0;
 const WRITE: usize = 1;
