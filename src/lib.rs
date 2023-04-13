@@ -88,6 +88,8 @@ use crate::reactor::{Reactor, Source};
 mod driver;
 mod reactor;
 
+pub mod os;
+
 pub use driver::block_on;
 pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 
@@ -685,7 +687,7 @@ impl<T: AsRawFd> Async<T> {
 #[cfg(unix)]
 impl<T: AsRawFd> AsRawFd for Async<T> {
     fn as_raw_fd(&self) -> RawFd {
-        self.source.raw
+        self.get_ref().as_raw_fd()
     }
 }
 
@@ -761,7 +763,7 @@ impl<T: AsRawSocket> Async<T> {
 #[cfg(windows)]
 impl<T: AsRawSocket> AsRawSocket for Async<T> {
     fn as_raw_socket(&self) -> RawSocket {
-        self.source.raw
+        self.get_ref().as_raw_socket()
     }
 }
 

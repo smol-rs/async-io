@@ -29,7 +29,7 @@ concurrent-queue = "2.2.0"
 futures-lite = "1.11.0"
 log = "0.4.11"
 parking = "2.0.0"
-polling = "2.0.0"
+polling = "2.6.0"
 rustix = { version = "0.37.1", default-features = false, features = ["std", "fs"] }
 slab = "0.4.2"
 socket2 = { version = "0.4.2", features = ["all"] }
