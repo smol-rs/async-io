@@ -1959,7 +1959,14 @@ fn connect(
     let socket =
         rustix::net::socket_with(domain, sock_type, sock_flags, protocol.unwrap_or_default())?;
 
-    // TODO: Set cloexec on Unix, nosigpipe on macos and no_inherit on windows
+    // Set cloexec on Unix platforms.
+    #[cfg(unix)]
+    rustix::io::fcntl_setfd(
+        &socket,
+        rustix::io::fcntl_getfd(&socket)? | rustix::io::FdFlags::CLOEXEC,
+    )?;
+
+    // TODO: Set nosigpipe on macos and no_inherit on windows
 
     #[cfg(not(any(
         target_os = "android",
