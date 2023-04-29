@@ -79,7 +79,7 @@ jobs:
       run: rustup update stable
     - name: Install cross
       uses: taiki-e/install-action@cross
-    # We don't test BSDs, since we already test them in Cirrus/vmactions.
+    # We don't test BSDs, since we already test them in Cirrus.
     - name: Android
       if: startsWith(matrix.os, 'ubuntu')
       run: cross test --target arm-linux-androideabi
@@ -103,38 +103,6 @@ jobs:
       run: |
         rustup target add x86_64-unknown-illumos
         cargo build --target x86_64-unknown-illumos
-
-  openbsd:
-    runs-on: macos-12
-    steps:
-    - uses: actions/checkout@v3
-    - name: Test OpenBSD
-      id: test
-      uses: vmactions/openbsd-vm@v0
-      with:
-        envs: CARGO_INCREMENTAL CARGO_NET_GIT_FETCH_WITH_CLI CARGO_NET_RETRY RUST_BACKTRACE RUSTFLAGS RUSTDOCFLAGS RUSTUP_MAX_RETRIES
-        usesh: true
-        # OpenBSD is tier 3 target, so install rust from package manager instead of rustup
-        prepare: |
-          pkg_add git rust
-        run: |
-          cargo test
-
-  dragonfly:
-    runs-on: macos-12
-    steps:
-    - uses: actions/checkout@v3
-    - name: Test Dragonfly BSD
-      id: test
-      uses: vmactions/dragonflybsd-vm@v0
-      with:
-        envs: CARGO_INCREMENTAL CARGO_NET_GIT_FETCH_WITH_CLI CARGO_NET_RETRY RUST_BACKTRACE RUSTFLAGS RUSTDOCFLAGS RUSTUP_MAX_RETRIES
-        usesh: true
-        # Dragonfly BSD is tier 3 target, so install rust from package manager instead of rustup
-        prepare: |
-          pkg install -y git rust
-        run: |
-          cargo test
 
   msrv:
     runs-on: ${{ matrix.os }}
