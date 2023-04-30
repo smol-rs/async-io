@@ -20,5 +20,9 @@ async-lock = "2.6.0"
 async-task = "4.0.2"
 atomic-waker = "1.0.0"
 fastrand = "1.3.4"
-futures-lite = "1.11.0"
+futures-io = { version = "0.3.28", default-features = false, features = ["std"] }
+futures-lite = { version = "1.11.0", default-features = false }
 log = "0.4.17"
+
+[dev-dependencies]
+futures-lite = "1.11.0"

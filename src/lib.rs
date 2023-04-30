@@ -97,6 +97,7 @@ use async_channel::{bounded, Receiver};
 use async_lock::OnceCell;
 use async_task::Runnable;
 use atomic_waker::AtomicWaker;
+use futures_io::{AsyncRead, AsyncSeek, AsyncWrite};
 use futures_lite::{future, prelude::*, ready};
 
 #[doc(no_inline)]
