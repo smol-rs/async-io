@@ -26,7 +26,8 @@ harness = false
 async-lock = "2.6"
 cfg-if = "1"
 concurrent-queue = "2.2.0"
-futures-lite = "1.11.0"
+futures-io = { version = "0.3.28", default-features = false, features = ["std"] }
+futures-lite = { version = "1.11.0", default-features = false }
 log = "0.4.11"
 parking = "2.0.0"
 polling = "2.6.0"

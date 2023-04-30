@@ -78,7 +78,7 @@ use std::os::windows::io::{AsRawSocket, RawSocket};
 #[cfg(all(not(async_io_no_io_safety), windows))]
 use std::os::windows::io::{AsSocket, BorrowedSocket, OwnedSocket};
 
-use futures_lite::io::{AsyncRead, AsyncWrite};
+use futures_io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
 use futures_lite::{future, pin, ready};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
