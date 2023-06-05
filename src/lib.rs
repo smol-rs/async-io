@@ -64,19 +64,15 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-#[cfg(all(not(async_io_no_io_safety), unix))]
-use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
 #[cfg(unix)]
 use std::{
-    os::unix::io::{AsRawFd, RawFd},
+    os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd},
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
 
 #[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, RawSocket};
-#[cfg(all(not(async_io_no_io_safety), windows))]
-use std::os::windows::io::{AsSocket, BorrowedSocket, OwnedSocket};
+use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, OwnedSocket, RawSocket};
 
 use futures_io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
@@ -685,14 +681,14 @@ impl<T: AsRawFd> AsRawFd for Async<T> {
     }
 }
 
-#[cfg(all(not(async_io_no_io_safety), unix))]
+#[cfg(unix)]
 impl<T: AsFd> AsFd for Async<T> {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.get_ref().as_fd()
     }
 }
 
-#[cfg(all(not(async_io_no_io_safety), unix))]
+#[cfg(unix)]
 impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Async<T> {
     type Error = io::Error;
 
@@ -701,7 +697,7 @@ impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Async<T> {
     }
 }
 
-#[cfg(all(not(async_io_no_io_safety), unix))]
+#[cfg(unix)]
 impl<T: Into<OwnedFd>> TryFrom<Async<T>> for OwnedFd {
     type Error = io::Error;
 
@@ -761,14 +757,14 @@ impl<T: AsRawSocket> AsRawSocket for Async<T> {
     }
 }
 
-#[cfg(all(not(async_io_no_io_safety), windows))]
+#[cfg(windows)]
 impl<T: AsSocket> AsSocket for Async<T> {
     fn as_socket(&self) -> BorrowedSocket<'_> {
         self.get_ref().as_socket()
     }
 }
 
-#[cfg(all(not(async_io_no_io_safety), windows))]
+#[cfg(windows)]
 impl<T: AsRawSocket + From<OwnedSocket>> TryFrom<OwnedSocket> for Async<T> {
     type Error = io::Error;
 
@@ -777,7 +773,7 @@ impl<T: AsRawSocket + From<OwnedSocket>> TryFrom<OwnedSocket> for Async<T> {
     }
 }
 
-#[cfg(all(not(async_io_no_io_safety), windows))]
+#[cfg(windows)]
 impl<T: Into<OwnedSocket>> TryFrom<Async<T>> for OwnedSocket {
     type Error = io::Error;
 
