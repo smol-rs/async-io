@@ -8,7 +8,10 @@
 
 #[cfg(unix)]
 fn main() -> std::io::Result<()> {
-    use std::os::unix::{io::AsRawFd, net::UnixStream};
+    use std::os::unix::{
+        io::{AsFd, AsRawFd},
+        net::UnixStream,
+    };
 
     use async_io::Async;
     use futures_lite::{future, prelude::*};
@@ -16,7 +19,10 @@ fn main() -> std::io::Result<()> {
     future::block_on(async {
         // Create a Unix stream that receives a byte on each signal occurrence.
         let (a, mut b) = Async::<UnixStream>::pair()?;
-        signal_hook::low_level::pipe::register_raw(signal_hook::consts::SIGINT, a.as_raw_fd())?;
+        signal_hook::low_level::pipe::register_raw(
+            signal_hook::consts::SIGINT,
+            a.as_fd().as_raw_fd(),
+        )?;
         println!("Waiting for Ctrl-C...");
 
         // Receive a byte that indicates the Ctrl-C signal occurred.

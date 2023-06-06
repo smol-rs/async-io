@@ -66,13 +66,13 @@ use std::time::{Duration, Instant};
 
 #[cfg(unix)]
 use std::{
-    os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd},
+    os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd},
     os::unix::net::{SocketAddr as UnixSocketAddr, UnixDatagram, UnixListener, UnixStream},
     path::Path,
 };
 
 #[cfg(windows)]
-use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, OwnedSocket, RawSocket};
+use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, OwnedSocket};
 
 use futures_io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
@@ -615,14 +615,14 @@ pub struct Async<T> {
 impl<T> Unpin for Async<T> {}
 
 #[cfg(unix)]
-impl<T: AsRawFd> Async<T> {
+impl<T: AsFd> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This method will put the handle in non-blocking mode and register it in
     /// [epoll]/[kqueue]/[event ports]/[IOCP].
     ///
-    /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
-    /// `AsRawSocket`.
+    /// On Unix systems, the handle must implement `AsFd`, while on Windows it must implement
+    /// `AsSocket`.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -641,14 +641,9 @@ impl<T: AsRawFd> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
-        let raw = io.as_raw_fd();
+        let fd = io.as_fd();
 
         // Put the file descriptor in non-blocking mode.
-        //
-        // Safety: We assume `as_raw_fd()` returns a valid fd. When we can
-        // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
-        // `TimerFd` implements it, we can remove this unsafe and simplify this.
-        let fd = unsafe { rustix::fd::BorrowedFd::borrow_raw(raw) };
         cfg_if::cfg_if! {
             // ioctl(FIONBIO) sets the flag atomically, but we use this only on Linux
             // for now, as with the standard library, because it seems to behave
@@ -668,16 +663,9 @@ impl<T: AsRawFd> Async<T> {
         }
 
         Ok(Async {
-            source: Reactor::get().insert_io(raw)?,
+            source: Reactor::get().insert_io(fd.as_raw_fd())?,
             io: Some(io),
         })
-    }
-}
-
-#[cfg(unix)]
-impl<T: AsRawFd> AsRawFd for Async<T> {
-    fn as_raw_fd(&self) -> RawFd {
-        self.get_ref().as_raw_fd()
     }
 }
 
@@ -689,7 +677,7 @@ impl<T: AsFd> AsFd for Async<T> {
 }
 
 #[cfg(unix)]
-impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Async<T> {
+impl<T: AsFd + From<OwnedFd>> TryFrom<OwnedFd> for Async<T> {
     type Error = io::Error;
 
     fn try_from(value: OwnedFd) -> Result<Self, Self::Error> {
@@ -707,14 +695,14 @@ impl<T: Into<OwnedFd>> TryFrom<Async<T>> for OwnedFd {
 }
 
 #[cfg(windows)]
-impl<T: AsRawSocket> Async<T> {
+impl<T: AsSocket> Async<T> {
     /// Creates an async I/O handle.
     ///
     /// This method will put the handle in non-blocking mode and register it in
     /// [epoll]/[kqueue]/[event ports]/[IOCP].
     ///
-    /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
-    /// `AsRawSocket`.
+    /// On Unix systems, the handle must implement `AsFd`, while on Windows it must implement
+    /// `AsSocket`.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -733,8 +721,7 @@ impl<T: AsRawSocket> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
-        let sock = io.as_raw_socket();
-        let borrowed = unsafe { rustix::fd::BorrowedFd::borrow_raw(sock) };
+        let borrowed = io.as_socket();
 
         // Put the socket in non-blocking mode.
         //
@@ -744,16 +731,9 @@ impl<T: AsRawSocket> Async<T> {
         rustix::io::ioctl_fionbio(borrowed, true)?;
 
         Ok(Async {
-            source: Reactor::get().insert_io(sock)?,
+            source: Reactor::get().insert_io(borrowed.as_raw_socket())?,
             io: Some(io),
         })
-    }
-}
-
-#[cfg(windows)]
-impl<T: AsRawSocket> AsRawSocket for Async<T> {
-    fn as_raw_socket(&self) -> RawSocket {
-        self.get_ref().as_raw_socket()
     }
 }
 
@@ -765,7 +745,7 @@ impl<T: AsSocket> AsSocket for Async<T> {
 }
 
 #[cfg(windows)]
-impl<T: AsRawSocket + From<OwnedSocket>> TryFrom<OwnedSocket> for Async<T> {
+impl<T: AsSocket + From<OwnedSocket>> TryFrom<OwnedSocket> for Async<T> {
     type Error = io::Error;
 
     fn try_from(value: OwnedSocket) -> Result<Self, Self::Error> {
