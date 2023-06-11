@@ -93,11 +93,6 @@ pub mod os;
 pub use driver::block_on;
 pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 
-/// Use `Duration::MAX` once `duration_constants` are stabilized.
-fn duration_max() -> Duration {
-    Duration::new(std::u64::MAX, 1_000_000_000 - 1)
-}
-
 /// A future or stream that emits timed events.
 ///
 /// Timers are futures that output a single [`Instant`] when they fire.
@@ -195,7 +190,7 @@ impl Timer {
         Timer {
             id_and_waker: None,
             when: None,
-            period: duration_max(),
+            period: Duration::MAX,
         }
     }
 
@@ -232,8 +227,7 @@ impl Timer {
     /// # });
     /// ```
     pub fn at(instant: Instant) -> Timer {
-        // Use Duration::MAX once duration_constants are stabilized.
-        Timer::interval_at(instant, duration_max())
+        Timer::interval_at(instant, Duration::MAX)
     }
 
     /// Creates a timer that emits events periodically.
