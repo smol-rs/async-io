@@ -509,7 +509,7 @@ impl<T> Future for Readable<'_, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        tracing::trace!(fd=?self.0.handle.source.registration, "readable");
+        tracing::trace!(fd = ?self.0.handle.source.registration, "readable");
         Poll::Ready(Ok(()))
     }
 }
@@ -529,7 +529,7 @@ impl<T> Future for ReadableOwned<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        tracing::trace!(fd=?self.0.handle.source.registration, "readable_owned");
+        tracing::trace!(fd = ?self.0.handle.source.registration, "readable_owned");
         Poll::Ready(Ok(()))
     }
 }
@@ -549,7 +549,7 @@ impl<T> Future for Writable<'_, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        tracing::trace!(fd=?self.0.handle.source.registration, "writable");
+        tracing::trace!(fd = ?self.0.handle.source.registration, "writable");
         Poll::Ready(Ok(()))
     }
 }
@@ -569,7 +569,7 @@ impl<T> Future for WritableOwned<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        tracing::trace!(fd=?self.0.handle.source.registration, "writable_owned");
+        tracing::trace!(fd = ?self.0.handle.source.registration, "writable_owned");
         Poll::Ready(Ok(()))
     }
 }
