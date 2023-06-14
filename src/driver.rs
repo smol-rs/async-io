@@ -43,6 +43,9 @@ pub(crate) fn init() {
 
 /// The main loop for the "async-io" thread.
 fn main_loop(parker: parking::Parker) {
+    let span = tracing::trace_span!("async_io::main_loop");
+    let _enter = span.enter();
+
     // The last observed reactor tick.
     let mut last_tick = 0;
     // Number of sleeps since this thread has called `react()`.
@@ -61,7 +64,7 @@ fn main_loop(parker: parking::Parker) {
             };
 
             if let Some(mut reactor_lock) = reactor_lock {
-                log::trace!("main_loop: waiting on I/O");
+                tracing::trace!("waiting on I/O");
                 reactor_lock.react(None).ok();
                 last_tick = Reactor::get().ticker();
                 sleeps = 0;
@@ -76,9 +79,9 @@ fn main_loop(parker: parking::Parker) {
                 .get(sleeps as usize)
                 .unwrap_or(&10_000);
 
-            log::trace!("main_loop: sleeping for {} us", delay_us);
+            tracing::trace!("sleeping for {} us", delay_us);
             if parker.park_timeout(Duration::from_micros(*delay_us)) {
-                log::trace!("main_loop: notified");
+                tracing::trace!("notified");
 
                 // If notified before timeout, reset the last tick and the sleep counter.
                 last_tick = Reactor::get().ticker();
@@ -105,7 +108,8 @@ fn main_loop(parker: parking::Parker) {
 /// });
 /// ```
 pub fn block_on<T>(future: impl Future<Output = T>) -> T {
-    log::trace!("block_on()");
+    let span = tracing::trace_span!("async_io::block_on");
+    let _enter = span.enter();
 
     // Increment `BLOCK_ON_COUNT` so that the "async-io" thread becomes less aggressive.
     BLOCK_ON_COUNT.fetch_add(1, Ordering::SeqCst);
@@ -144,13 +148,13 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
     loop {
         // Poll the future.
         if let Poll::Ready(t) = future.as_mut().poll(cx) {
-            log::trace!("block_on: completed");
+            tracing::trace!("completed");
             return t;
         }
 
         // Check if a notification was received.
         if p.park_timeout(Duration::from_secs(0)) {
-            log::trace!("block_on: notified");
+            tracing::trace!("notified");
 
             // Try grabbing a lock on the reactor to process I/O events.
             if let Some(mut reactor_lock) = Reactor::get().try_lock() {
@@ -183,23 +187,23 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
                 // Check if a notification has been received before `io_blocked` was updated
                 // because in that case the reactor won't receive a wakeup.
                 if p.park_timeout(Duration::from_secs(0)) {
-                    log::trace!("block_on: notified");
+                    tracing::trace!("notified");
                     break;
                 }
 
                 // Wait for I/O events.
-                log::trace!("block_on: waiting on I/O");
+                tracing::trace!("waiting on I/O");
                 reactor_lock.react(None).ok();
 
                 // Check if a notification has been received.
                 if p.park_timeout(Duration::from_secs(0)) {
-                    log::trace!("block_on: notified");
+                    tracing::trace!("notified");
                     break;
                 }
 
                 // Check if this thread been handling I/O events for a long time.
                 if start.elapsed() > Duration::from_micros(500) {
-                    log::trace!("block_on: stops hogging the reactor");
+                    tracing::trace!("stops hogging the reactor");
 
                     // This thread is clearly processing I/O events for some other threads
                     // because it didn't get a notification yet. It's best to stop hogging the
@@ -218,7 +222,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
             }
         } else {
             // Wait for an actual notification.
-            log::trace!("block_on: sleep until notification");
+            tracing::trace!("sleep until notification");
             p.park();
         }
     }

@@ -199,6 +199,9 @@ impl Reactor {
     ///
     /// Returns the duration until the next timer before this method was called.
     fn process_timers(&self, wakers: &mut Vec<Waker>) -> Option<Duration> {
+        let span = tracing::trace_span!("process_timers");
+        let _enter = span.enter();
+
         let mut timers = self.timers.lock().unwrap();
         self.process_timer_ops(&mut timers);
 
@@ -227,7 +230,8 @@ impl Reactor {
         drop(timers);
 
         // Add wakers to the list.
-        log::trace!("process_timers: {} ready wakers", ready.len());
+        tracing::trace!("{} ready wakers", ready.len());
+
         for (_, waker) in ready {
             wakers.push(waker);
         }
@@ -262,6 +266,9 @@ pub(crate) struct ReactorLock<'a> {
 impl ReactorLock<'_> {
     /// Processes new events, blocking until the first event or the timeout.
     pub(crate) fn react(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+        let span = tracing::trace_span!("react");
+        let _enter = span.enter();
+
         let mut wakers = Vec::new();
 
         // Process ready timers.
@@ -339,7 +346,7 @@ impl ReactorLock<'_> {
         };
 
         // Wake up ready tasks.
-        log::trace!("react: {} ready wakers", wakers.len());
+        tracing::trace!("{} ready wakers", wakers.len());
         for waker in wakers {
             // Don't let a panicking waker blow everything up.
             panic::catch_unwind(|| waker.wake()).ok();
@@ -502,7 +509,7 @@ impl<T> Future for Readable<'_, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        log::trace!("readable: fd={:?}", self.0.handle.source.registration);
+        tracing::trace!(fd = ?self.0.handle.source.registration, "readable");
         Poll::Ready(Ok(()))
     }
 }
@@ -522,7 +529,7 @@ impl<T> Future for ReadableOwned<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        log::trace!("readable_owned: fd={:?}", self.0.handle.source.registration);
+        tracing::trace!(fd = ?self.0.handle.source.registration, "readable_owned");
         Poll::Ready(Ok(()))
     }
 }
@@ -542,7 +549,7 @@ impl<T> Future for Writable<'_, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        log::trace!("writable: fd={:?}", self.0.handle.source.registration);
+        tracing::trace!(fd = ?self.0.handle.source.registration, "writable");
         Poll::Ready(Ok(()))
     }
 }
@@ -562,7 +569,7 @@ impl<T> Future for WritableOwned<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
-        log::trace!("writable_owned: fd={:?}", self.0.handle.source.registration);
+        tracing::trace!(fd = ?self.0.handle.source.registration, "writable_owned");
         Poll::Ready(Ok(()))
     }
 }
