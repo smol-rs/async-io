@@ -4,12 +4,17 @@ use polling::{Event, Poller};
 
 use std::fmt;
 use std::io::Result;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, RawFd};
 
 /// The raw registration into the reactor.
 #[doc(hidden)]
 pub struct Registration {
     /// Raw file descriptor on Unix.
+    ///
+    /// # Invariant
+    ///
+    /// This describes a valid file descriptor that has not been `close`d. It will not be
+    /// closed while this object is alive.
     raw: RawFd,
 }
 
@@ -19,29 +24,38 @@ impl fmt::Debug for Registration {
     }
 }
 
-impl From<RawFd> for Registration {
-    #[inline]
-    fn from(raw: RawFd) -> Self {
-        Self { raw }
-    }
-}
-
 impl Registration {
+    /// Add this file descriptor into the reactor.
+    ///
+    /// # Safety
+    ///
+    /// The provided file descriptor must be valid and not be closed while this object is alive.
+    pub(crate) unsafe fn new(f: impl AsFd) -> Self {
+        Self {
+            raw: f.as_fd().as_raw_fd(),
+        }
+    }
+
     /// Registers the object into the reactor.
     #[inline]
     pub(crate) fn add(&self, poller: &Poller, token: usize) -> Result<()> {
-        poller.add(self.raw, Event::none(token))
+        // SAFETY: This object's existence validates the invariants of Poller::add
+        unsafe { poller.add(self.raw, Event::none(token)) }
     }
 
     /// Re-registers the object into the reactor.
     #[inline]
     pub(crate) fn modify(&self, poller: &Poller, interest: Event) -> Result<()> {
-        poller.modify(self.raw, interest)
+        // SAFETY: self.raw is a valid file descriptor
+        let fd = unsafe { BorrowedFd::borrow_raw(self.raw) };
+        poller.modify(fd, interest)
     }
 
     /// Deregisters the object from the reactor.
     #[inline]
     pub(crate) fn delete(&self, poller: &Poller) -> Result<()> {
-        poller.delete(self.raw)
+        // SAFETY: self.raw is a valid file descriptor
+        let fd = unsafe { BorrowedFd::borrow_raw(self.raw) };
+        poller.delete(fd)
     }
 }

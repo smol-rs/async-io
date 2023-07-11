@@ -117,13 +117,13 @@ impl Reactor {
     }
 
     /// Registers an I/O source in the reactor.
-    pub(crate) fn insert_io(&self, raw: impl Into<Registration>) -> io::Result<Arc<Source>> {
+    pub(crate) fn insert_io(&self, raw: Registration) -> io::Result<Arc<Source>> {
         // Create an I/O source for this file descriptor.
         let source = {
             let mut sources = self.sources.lock().unwrap();
             let key = sources.vacant_entry().key();
             let source = Arc::new(Source {
-                registration: raw.into(),
+                registration: raw,
                 key,
                 state: Default::default(),
             });

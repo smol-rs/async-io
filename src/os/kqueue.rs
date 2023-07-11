@@ -8,13 +8,10 @@ use crate::Async;
 use std::convert::{TryFrom, TryInto};
 use std::future::Future;
 use std::io::{Error, Result};
-use std::os::unix::io::{AsRawFd, RawFd};
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::pin::Pin;
 use std::process::Child;
 use std::task::{Context, Poll};
-
-#[cfg(not(async_io_no_io_safety))]
-use std::os::unix::io::{AsFd, BorrowedFd, OwnedFd};
 
 /// A wrapper around a queueable object that waits until it is ready.
 ///
@@ -34,7 +31,7 @@ impl<T> AsRef<T> for Filter<T> {
 
 impl<T> AsMut<T> for Filter<T> {
     fn as_mut(&mut self) -> &mut T {
-        self.0.as_mut()
+        self.get_mut()
     }
 }
 
@@ -72,15 +69,13 @@ impl<T: AsRawFd> AsRawFd for Filter<T> {
     }
 }
 
-#[cfg(not(async_io_no_io_safety))]
 impl<T: AsFd> AsFd for Filter<T> {
     fn as_fd(&self) -> BorrowedFd<'_> {
         self.0.as_fd()
     }
 }
 
-#[cfg(not(async_io_no_io_safety))]
-impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Filter<T> {
+impl<T: AsFd + From<OwnedFd>> TryFrom<OwnedFd> for Filter<T> {
     type Error = Error;
 
     fn try_from(fd: OwnedFd) -> Result<Self> {
@@ -88,7 +83,6 @@ impl<T: AsRawFd + From<OwnedFd>> TryFrom<OwnedFd> for Filter<T> {
     }
 }
 
-#[cfg(not(async_io_no_io_safety))]
 impl<T: Into<OwnedFd>> TryFrom<Filter<T>> for OwnedFd {
     type Error = Error;
 
@@ -117,6 +111,9 @@ impl<T> Filter<T> {
 
     /// Gets a mutable reference to the underlying [`Queueable`] object.
     ///
+    /// Unlike in [`Async`], this method is safe to call, since dropping the [`Filter`] will
+    /// not cause any undefined behavior.
+    ///
     /// # Examples
     ///
     /// ```
@@ -129,7 +126,7 @@ impl<T> Filter<T> {
     /// # });
     /// ```
     pub fn get_mut(&mut self) -> &mut T {
-        self.0.get_mut()
+        unsafe { self.0.get_mut() }
     }
 
     /// Unwraps the inner [`Queueable`] object.

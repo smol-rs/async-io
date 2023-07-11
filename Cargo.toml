@@ -36,9 +36,6 @@ socket2 = { version = "0.5.3", features = ["all"] }
 tracing = { version = "0.1.37", default-features = false }
 waker-fn = "1.1.0"
 
-[build-dependencies]
-autocfg = "1"
-
 [dev-dependencies]
 async-channel = "1"
 async-net = "1"
@@ -54,3 +51,7 @@ timerfd = "1"
 
 [target.'cfg(windows)'.dev-dependencies]
 uds_windows = "1"
+
+[patch.crates-io]
+polling = { git = "https://github.com/smol-rs/polling.git", branch = "notgull/unsafe2" }
+async-io = { path = "." }

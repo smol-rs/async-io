@@ -3,12 +3,17 @@
 use polling::{Event, Poller};
 use std::fmt;
 use std::io::Result;
-use std::os::windows::io::RawSocket;
+use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, RawSocket};
 
 /// The raw registration into the reactor.
 #[doc(hidden)]
 pub struct Registration {
     /// Raw socket handle on Windows.
+    ///
+    /// # Invariant
+    ///
+    /// This describes a valid socket that has not been `close`d. It will not be
+    /// closed while this object is alive.
     raw: RawSocket,
 }
 
@@ -18,29 +23,38 @@ impl fmt::Debug for Registration {
     }
 }
 
-impl From<RawSocket> for Registration {
-    #[inline]
-    fn from(raw: RawSocket) -> Self {
-        Self { raw }
-    }
-}
-
 impl Registration {
+    /// Add this file descriptor into the reactor.
+    ///
+    /// # Safety
+    ///
+    /// The provided file descriptor must be valid and not be closed while this object is alive.
+    pub(crate) unsafe fn new(f: impl AsSocket) -> Self {
+        Self {
+            raw: f.as_socket().as_raw_socket(),
+        }
+    }
+
     /// Registers the object into the reactor.
     #[inline]
     pub(crate) fn add(&self, poller: &Poller, token: usize) -> Result<()> {
-        poller.add(self.raw, Event::none(token))
+        // SAFETY: This object's existence validates the invariants of Poller::add
+        unsafe { poller.add(self.raw, Event::none(token)) }
     }
 
     /// Re-registers the object into the reactor.
     #[inline]
     pub(crate) fn modify(&self, poller: &Poller, interest: Event) -> Result<()> {
-        poller.modify(self.raw, interest)
+        // SAFETY: self.raw is a valid file descriptor
+        let fd = unsafe { BorrowedSocket::borrow_raw(self.raw) };
+        poller.modify(fd, interest)
     }
 
     /// Deregisters the object from the reactor.
     #[inline]
     pub(crate) fn delete(&self, poller: &Poller) -> Result<()> {
-        poller.delete(self.raw)
+        // SAFETY: self.raw is a valid file descriptor
+        let fd = unsafe { BorrowedSocket::borrow_raw(self.raw) };
+        poller.delete(fd)
     }
 }

@@ -7,7 +7,7 @@ use polling::{Event, PollMode, Poller};
 
 use std::fmt;
 use std::io::Result;
-use std::os::unix::io::RawFd;
+use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, RawFd};
 use std::process::Child;
 
 /// The raw registration into the reactor.
@@ -16,6 +16,12 @@ use std::process::Child;
 #[doc(hidden)]
 pub enum Registration {
     /// Raw file descriptor for readability/writability.
+    ///
+    ///
+    /// # Invariant
+    ///
+    /// This describes a valid file descriptor that has not been `close`d. It will not be
+    /// closed while this object is alive.
     Fd(RawFd),
 
     /// Raw signal number for signal delivery.
@@ -35,19 +41,24 @@ impl fmt::Debug for Registration {
     }
 }
 
-impl From<RawFd> for Registration {
-    #[inline]
-    fn from(raw: RawFd) -> Self {
-        Self::Fd(raw)
-    }
-}
-
 impl Registration {
+    /// Add this file descriptor into the reactor.
+    ///
+    /// # Safety
+    ///
+    /// The provided file descriptor must be valid and not be closed while this object is alive.
+    pub(crate) unsafe fn new(f: impl AsFd) -> Self {
+        Self::Fd(f.as_fd().as_raw_fd())
+    }
+
     /// Registers the object into the reactor.
     #[inline]
     pub(crate) fn add(&self, poller: &Poller, token: usize) -> Result<()> {
         match self {
-            Self::Fd(raw) => poller.add(*raw, Event::none(token)),
+            Self::Fd(raw) => {
+                // SAFETY: This object's existence validates the invariants of Poller::add
+                unsafe { poller.add(*raw, Event::none(token)) }
+            }
             Self::Signal(signal) => {
                 poller.add_filter(PollSignal(signal.0), token, PollMode::Oneshot)
             }
@@ -63,7 +74,11 @@ impl Registration {
     #[inline]
     pub(crate) fn modify(&self, poller: &Poller, interest: Event) -> Result<()> {
         match self {
-            Self::Fd(raw) => poller.modify(*raw, interest),
+            Self::Fd(raw) => {
+                // SAFETY: self.raw is a valid file descriptor
+                let fd = unsafe { BorrowedFd::borrow_raw(*raw) };
+                poller.modify(fd, interest)
+            }
             Self::Signal(signal) => {
                 poller.modify_filter(PollSignal(signal.0), interest.key, PollMode::Oneshot)
             }
@@ -79,7 +94,11 @@ impl Registration {
     #[inline]
     pub(crate) fn delete(&self, poller: &Poller) -> Result<()> {
         match self {
-            Self::Fd(raw) => poller.delete(*raw),
+            Self::Fd(raw) => {
+                // SAFETY: self.raw is a valid file descriptor
+                let fd = unsafe { BorrowedFd::borrow_raw(*raw) };
+                poller.delete(fd)
+            }
             Self::Signal(signal) => poller.delete_filter(PollSignal(signal.0)),
             Self::Process(process) => poller.delete_filter(Process::new(process, ProcessOps::Exit)),
         }
