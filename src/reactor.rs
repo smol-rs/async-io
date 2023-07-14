@@ -53,7 +53,7 @@ pub(crate) struct Reactor {
     /// Portable bindings to epoll/kqueue/event ports/IOCP.
     ///
     /// This is where I/O is polled, producing I/O events.
-    poller: Poller,
+    pub(crate) poller: Poller,
 
     /// Ticker bumped before polling.
     ///
