@@ -43,6 +43,14 @@ cfg_if::cfg_if! {
     }
 }
 
+#[cfg(not(target_os = "espidf"))]
+const TIMER_QUEUE_SIZE: usize = 1000;
+
+/// ESP-IDF - being an embedded OS - does not need so many timers
+/// and this saves ~ 20K RAM which is a lot for an MCU with RAM < 400K
+#[cfg(target_os = "espidf")]
+const TIMER_QUEUE_SIZE: usize = 100;
+
 const READ: usize = 0;
 const WRITE: usize = 1;
 
@@ -98,7 +106,7 @@ impl Reactor {
                 sources: Mutex::new(Slab::new()),
                 events: Mutex::new(Vec::new()),
                 timers: Mutex::new(BTreeMap::new()),
-                timer_ops: ConcurrentQueue::bounded(1000),
+                timer_ops: ConcurrentQueue::bounded(TIMER_QUEUE_SIZE),
             }
         })
     }
