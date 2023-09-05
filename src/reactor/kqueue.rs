@@ -63,7 +63,7 @@ impl Registration {
                 poller.add_filter(PollSignal(signal.0), token, PollMode::Oneshot)
             }
             Self::Process(process) => poller.add_filter(
-                Process::new(process, ProcessOps::Exit),
+                unsafe { Process::new(process, ProcessOps::Exit) },
                 token,
                 PollMode::Oneshot,
             ),
@@ -83,7 +83,7 @@ impl Registration {
                 poller.modify_filter(PollSignal(signal.0), interest.key, PollMode::Oneshot)
             }
             Self::Process(process) => poller.modify_filter(
-                Process::new(process, ProcessOps::Exit),
+                unsafe { Process::new(process, ProcessOps::Exit) },
                 interest.key,
                 PollMode::Oneshot,
             ),
@@ -100,7 +100,9 @@ impl Registration {
                 poller.delete(fd)
             }
             Self::Signal(signal) => poller.delete_filter(PollSignal(signal.0)),
-            Self::Process(process) => poller.delete_filter(Process::new(process, ProcessOps::Exit)),
+            Self::Process(process) => {
+                poller.delete_filter(unsafe { Process::new(process, ProcessOps::Exit) })
+            }
         }
     }
 }

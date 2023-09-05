@@ -29,7 +29,7 @@ concurrent-queue = "2.2.0"
 futures-io = { version = "0.3.28", default-features = false, features = ["std"] }
 futures-lite = { version = "1.11.0", default-features = false }
 parking = "2.0.0"
-polling = "2.6.0"
+polling = "3.0.0"
 rustix = { version = "0.38.2", default-features = false, features = ["std", "fs"] }
 slab = "0.4.2"
 socket2 = { version = "0.5.3", features = ["all"] }
@@ -53,5 +53,4 @@ timerfd = "1"
 uds_windows = "1"
 
 [patch.crates-io]
-polling = { git = "https://github.com/smol-rs/polling.git", branch = "notgull/unsafe2" }
 async-io = { path = "." }

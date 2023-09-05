@@ -15,7 +15,7 @@ use std::time::{Duration, Instant};
 use async_lock::OnceCell;
 use concurrent_queue::ConcurrentQueue;
 use futures_lite::ready;
-use polling::{Event, Poller};
+use polling::{Event, Events, Poller};
 use slab::Slab;
 
 // Choose the proper implementation of `Registration` based on the target platform.
@@ -77,7 +77,7 @@ pub(crate) struct Reactor {
     /// Temporary storage for I/O events when polling the reactor.
     ///
     /// Holding a lock on this event list implies the exclusive right to poll I/O.
-    events: Mutex<Vec<Event>>,
+    events: Mutex<Events>,
 
     /// An ordered map of registered timers.
     ///
@@ -104,7 +104,7 @@ impl Reactor {
                 poller: Poller::new().expect("cannot initialize I/O event notification"),
                 ticker: AtomicUsize::new(0),
                 sources: Mutex::new(Slab::new()),
-                events: Mutex::new(Vec::new()),
+                events: Mutex::new(Events::new()),
                 timers: Mutex::new(BTreeMap::new()),
                 timer_ops: ConcurrentQueue::bounded(TIMER_QUEUE_SIZE),
             }
@@ -268,7 +268,7 @@ impl Reactor {
 /// A lock on the reactor.
 pub(crate) struct ReactorLock<'a> {
     reactor: &'a Reactor,
-    events: MutexGuard<'a, Vec<Event>>,
+    events: MutexGuard<'a, Events>,
 }
 
 impl ReactorLock<'_> {
@@ -331,14 +331,16 @@ impl ReactorLock<'_> {
                         // e.g. we were previously interested in both readability and writability,
                         // but only one of them was emitted.
                         if !state[READ].is_empty() || !state[WRITE].is_empty() {
-                            source.registration.modify(
-                                &self.reactor.poller,
-                                Event {
-                                    key: source.key,
-                                    readable: !state[READ].is_empty(),
-                                    writable: !state[WRITE].is_empty(),
-                                },
-                            )?;
+                            // Create the event that we are interested in.
+                            let event = {
+                                let mut event = Event::none(source.key);
+                                event.readable = !state[READ].is_empty();
+                                event.writable = !state[WRITE].is_empty();
+                                event
+                            };
+
+                            // Register interest in this event.
+                            source.registration.modify(&self.reactor.poller, event)?;
                         }
                     }
                 }
@@ -463,14 +465,16 @@ impl Source {
 
         // Update interest in this I/O handle.
         if was_empty {
-            self.registration.modify(
-                &Reactor::get().poller,
-                Event {
-                    key: self.key,
-                    readable: !state[READ].is_empty(),
-                    writable: !state[WRITE].is_empty(),
-                },
-            )?;
+            // Create the event that we are interested in.
+            let event = {
+                let mut event = Event::none(self.key);
+                event.readable = !state[READ].is_empty();
+                event.writable = !state[WRITE].is_empty();
+                event
+            };
+
+            // Register interest in it.
+            self.registration.modify(&Reactor::get().poller, event)?;
         }
 
         Poll::Pending
@@ -637,14 +641,20 @@ impl<H: Borrow<crate::Async<T>> + Clone, T> Future for Ready<H, T> {
 
         // Update interest in this I/O handle.
         if was_empty {
-            handle.borrow().source.registration.modify(
-                &Reactor::get().poller,
-                Event {
-                    key: handle.borrow().source.key,
-                    readable: !state[READ].is_empty(),
-                    writable: !state[WRITE].is_empty(),
-                },
-            )?;
+            // Create the event that we are interested in.
+            let event = {
+                let mut event = Event::none(handle.borrow().source.key);
+                event.readable = !state[READ].is_empty();
+                event.writable = !state[WRITE].is_empty();
+                event
+            };
+
+            // Indicate that we are interested in this event.
+            handle
+                .borrow()
+                .source
+                .registration
+                .modify(&Reactor::get().poller, event)?;
         }
 
         Poll::Pending
