@@ -57,6 +57,5 @@ openbsd_task:
   setup_script:
     # OpenBSD is tier 3 target, so install rust from package manager instead of rustup
     - pkg_add git rust
-    - rustup update
   test_script:
     - cargo test
