@@ -83,7 +83,9 @@ use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, OwnedSocket, R
 use futures_io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
 use futures_lite::{future, pin, ready};
-use socket2::{Domain, Protocol, SockAddr, Socket, Type};
+
+use rustix::io as rio;
+use rustix::net as rn;
 
 use crate::reactor::{Reactor, Registration, Source};
 
@@ -1487,10 +1489,15 @@ impl Async<TcpStream> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub async fn connect<A: Into<SocketAddr>>(addr: A) -> io::Result<Async<TcpStream>> {
-        // Begin async connect.
+        // Figure out how to handle this address.
         let addr = addr.into();
-        let domain = Domain::for_address(addr);
-        let socket = connect(addr.into(), domain, Some(Protocol::TCP))?;
+        let (domain, sock_addr) = match addr {
+            SocketAddr::V4(v4) => (rn::AddressFamily::INET, rn::SocketAddrAny::V4(v4)),
+            SocketAddr::V6(v6) => (rn::AddressFamily::INET6, rn::SocketAddrAny::V6(v6)),
+        };
+
+        // Begin async connect.
+        let socket = connect(sock_addr, domain, Some(rn::ipproto::TCP))?;
         let stream = Async::new(TcpStream::from(socket))?;
 
         // The stream becomes writable when connected.
@@ -1819,7 +1826,11 @@ impl Async<UnixStream> {
     /// ```
     pub async fn connect<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixStream>> {
         // Begin async connect.
-        let socket = connect(SockAddr::unix(path)?, Domain::UNIX, None)?;
+        let socket = connect(
+            rn::SocketAddrUnix::new(path.as_ref())?.into(),
+            rn::AddressFamily::UNIX,
+            None,
+        )?;
         let stream = Async::new(UnixStream::from(socket))?;
 
         // The stream becomes writable when connected.
@@ -2029,8 +2040,11 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
     .await
 }
 
-fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Result<Socket> {
-    let sock_type = Type::STREAM;
+fn connect(
+    addr: rn::SocketAddrAny,
+    domain: rn::AddressFamily,
+    protocol: Option<rn::Protocol>,
+) -> io::Result<rustix::fd::OwnedFd> {
     #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -2041,10 +2055,13 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
         target_os = "netbsd",
         target_os = "openbsd"
     ))]
-    // If we can, set nonblocking at socket creation for unix
-    let sock_type = sock_type.nonblocking();
-    // This automatically handles cloexec on unix, no_inherit on windows and nosigpipe on macos
-    let socket = Socket::new(domain, sock_type, protocol)?;
+    let socket = rn::socket_with(
+        domain,
+        rn::SocketType::STREAM,
+        rn::SocketFlags::CLOEXEC | rn::SocketFlags::NONBLOCK,
+        protocol,
+    )?;
+
     #[cfg(not(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -2055,14 +2072,62 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
         target_os = "netbsd",
         target_os = "openbsd"
     )))]
-    // If the current platform doesn't support nonblocking at creation, enable it after creation
-    socket.set_nonblocking(true)?;
-    match socket.connect(&addr) {
+    let socket = {
+        #[cfg(not(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "watchos",
+            windows,
+            target_os = "aix",
+            target_os = "haiku"
+        )))]
+        let flags = rn::SocketFlags::CLOEXEC;
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "watchos",
+            windows,
+            target_os = "aix",
+            target_os = "haiku"
+        ))]
+        let flags = rn::SocketFlags::empty();
+
+        // Create the socket.
+        let socket = rn::socket_with(domain, rn::SocketFlags::STREAM, flags, protocol)?;
+
+        // Set cloexec if necessary.
+        #[cfg(any(
+            target_os = "macos",
+            target_os = "ios",
+            target_os = "tvos",
+            target_os = "watchos"
+        ))]
+        rio::fcntl_setfd(&socket, rio::fcntl_getfd(&socket)? | rio::FdFlags::CLOEXEC)?;
+
+        // Set non-blocking mode.
+        rio::ioctl_fionbio(&socket, true)?;
+
+        socket
+    };
+
+    // Set nosigpipe if necessary.
+    #[cfg(any(
+        target_os = "macos",
+        target_os = "ios",
+        target_os = "tvos",
+        target_os = "watchos",
+        target_os = "freebsd"
+    ))]
+    rn::sockopt::set_socket_nosigpipe(&socket, true)?;
+
+    match rn::connect_any(&socket, &addr) {
         Ok(_) => {}
         #[cfg(unix)]
-        Err(err) if err.raw_os_error() == Some(rustix::io::Errno::INPROGRESS.raw_os_error()) => {}
-        Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-        Err(err) => return Err(err),
+        Err(rio::Errno::INPROGRESS) => {}
+        Err(rio::Errno::AGAIN) => {}
+        Err(err) => return Err(err.into()),
     }
     Ok(socket)
 }
