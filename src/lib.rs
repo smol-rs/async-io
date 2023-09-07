@@ -2095,7 +2095,7 @@ fn connect(
         let flags = rn::SocketFlags::empty();
 
         // Create the socket.
-        let socket = rn::socket_with(domain, rn::SocketFlags::STREAM, flags, protocol)?;
+        let socket = rn::socket_with(domain, rn::SocketType::STREAM, flags, protocol)?;
 
         // Set cloexec if necessary.
         #[cfg(any(
