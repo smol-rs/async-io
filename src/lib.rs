@@ -536,10 +536,14 @@ impl Stream for Timer {
 /// [`async-process`] (on Unix).
 ///
 /// The most notable caveat is that it is unsafe to access the inner I/O source mutably
-/// using this function.
+/// using this primitive. Traits likes [`AsyncRead`] and [`AsyncWrite`] are not implemented by
+/// default unless it is guaranteed that the resource won't be invalidated by reading or writing.
+/// See the [`IoSafe`] trait for more information.
 ///
 /// [`async-net`]: https://github.com/smol-rs/async-net
 /// [`async-process`]: https://github.com/smol-rs/async-process
+/// [`AsyncRead`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncRead.html
+/// [`AsyncWrite`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncWrite.html
 ///
 /// ### Supported types
 ///
@@ -1145,9 +1149,37 @@ impl<T> Drop for Async<T> {
 
 /// Types whose I/O trait implementations do not drop the underlying I/O source.
 ///
+/// The resource contained inside of the [`Async`] cannot be invalidated. This invalidation can
+/// happen if the inner resource (the [`TcpStream`], [`UnixListener`] or other `T`) is moved out
+/// and dropped before the [`Async`]. Because of this, functions that grant mutable access to
+/// the inner type are unsafe, as there is no way to guarantee that the source won't be dropped
+/// and a dangling pointer won't be left behind.
+///
+/// Unfortunately this extends to implementations of [`Read`] and [`Write`]. Since methods on those
+/// traits take `&mut`, there is no guarantee that the implementor of those traits won't move the
+/// source out while the method is being run.
+///
+/// This trait is an antidote to this predicament. By implementing this trait, it is guaranteed
+/// that using any I/O traits won't desroy the source. This way, [`Async`] can implement the
+/// `async` version of these I/O traits, like [`AsyncRead`], [`AsyncWrite`] and [`AsyncSeek`].
+///
 /// # Safety
 ///
-/// Any I/O trait implementations for this type must not drop the underlying I/O source.
+/// Any I/O trait implementations for this type must not drop the underlying I/O source. Traits
+/// affected by this trait include [`Read`], [`Write`] and [`Seek`].
+///
+/// This trait is implemented by default on top of `libstd` types. In addition, it is implemented
+/// for immutable reference types, as it is impossible to invalidate any outstanding references
+/// while holding an immutable reference, even with interior mutability. As Rust's current pinning
+/// system relies on similar guarantees, I believe that this approach is robust.
+///
+/// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
+/// [`Seek`]: https://doc.rust-lang.org/std/io/trait.Seek.html
+/// [`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
+///
+/// [`AsyncRead`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncRead.html
+/// [`AsyncSeek`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncSeek.html
+/// [`AsyncWrite`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncWrite.html
 pub unsafe trait IoSafe {}
 
 // Reference types can't be mutated.
