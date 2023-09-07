@@ -10,6 +10,10 @@
 [`libc`]: https://crates.io/crates/libc/
 [`windows-sys`]: https://crates.io/crates/windows-sys/
 
+# Version 1.12.1
+
+- Update `rustix`
+
 # Version 1.12.0
 
 - Switch from `winapi` to `windows-sys` (#102)

@@ -3,7 +3,7 @@ name = "async-io"
 # When publishing a new version:
 # - Update CHANGELOG.md
 # - Create "v1.x.y" git tag
-version = "1.13.0"
+version = "1.13.1"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2018"
 rust-version = "1.63"
@@ -30,7 +30,7 @@ futures-io = { version = "0.3.28", default-features = false, features = ["std"] 
 futures-lite = { version = "1.11.0", default-features = false }
 parking = "2.0.0"
 polling = "2.6.0"
-rustix = { version = "0.38.2", default-features = false, features = ["std", "fs"] }
+rustix = { version = "0.38.11", default-features = false, features = ["std", "fs"] }
 slab = "0.4.2"
 socket2 = { version = "0.5.3", features = ["all"] }
 tracing = { version = "0.1.37", default-features = false }
