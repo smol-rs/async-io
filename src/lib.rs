@@ -86,7 +86,7 @@ use futures_lite::stream::{self, Stream};
 use futures_lite::{future, pin, ready};
 use socket2::{Domain, Protocol, SockAddr, Socket, Type};
 
-use crate::reactor::{Reactor, Registration, Source};
+use crate::reactor::{Reactor, Registration, Source, SourceContainer};
 
 mod driver;
 mod reactor;
@@ -620,7 +620,7 @@ impl Stream for Timer {
 #[derive(Debug)]
 pub struct Async<T> {
     /// A source registered in the reactor.
-    source: ArcSource,
+    source: SourceContainer,
 
     /// The inner I/O handle.
     io: T,
@@ -680,7 +680,7 @@ impl<T: AsFd> Async<T> {
         let registration = unsafe { Registration::new(fd) };
 
         Ok(Async {
-            source: ArcSource(Reactor::get().insert_io(registration)?),
+            source: SourceContainer(Reactor::get().insert_io(registration)?),
             io,
         })
     }
@@ -761,7 +761,7 @@ impl<T: AsSocket> Async<T> {
         let registration = unsafe { Registration::new(borrowed) };
 
         Ok(Async {
-            source: ArcSource(Reactor::get().insert_io(registration)?),
+            source: SourceContainer(Reactor::get().insert_io(registration)?),
             io: io,
         })
     }
@@ -2071,22 +2071,4 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
         Err(err) => return Err(err),
     }
     Ok(socket)
-}
-
-#[derive(Debug)]
-struct ArcSource(Arc<Source>);
-
-impl Drop for ArcSource {
-    fn drop(&mut self) {
-        // Deregister and ignore errors because destructors should not panic.
-        Reactor::get().remove_io(&self.0).ok();
-    }
-}
-
-impl Deref for ArcSource {
-    type Target = Source;
-
-    fn deref(&self) -> &Self::Target {
-        self.0.deref()
-    }
 }

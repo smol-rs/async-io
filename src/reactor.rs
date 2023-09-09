@@ -5,6 +5,7 @@ use std::future::Future;
 use std::io;
 use std::marker::PhantomData;
 use std::mem;
+use std::ops::Deref;
 use std::panic;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
@@ -671,5 +672,23 @@ impl<H: Borrow<crate::Async<T>>, T> Drop for Ready<H, T> {
                 wakers.remove(key);
             }
         }
+    }
+}
+
+#[derive(Debug)]
+pub(crate) struct SourceContainer(pub(crate) Arc<Source>);
+
+impl Drop for SourceContainer {
+    fn drop(&mut self) {
+        // Deregister and ignore errors because destructors should not panic.
+        Reactor::get().remove_io(&self.0).ok();
+    }
+}
+
+impl Deref for SourceContainer {
+    type Target = Source;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
     }
 }
