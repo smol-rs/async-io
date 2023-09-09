@@ -70,6 +70,7 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
+use std::ops::Deref;
 #[cfg(unix)]
 use std::{
     os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd},
@@ -619,10 +620,10 @@ impl Stream for Timer {
 #[derive(Debug)]
 pub struct Async<T> {
     /// A source registered in the reactor.
-    source: Arc<Source>,
+    source: ArcSource,
 
     /// The inner I/O handle.
-    io: Option<T>,
+    io: T,
 }
 
 impl<T> Unpin for Async<T> {}
@@ -679,8 +680,8 @@ impl<T: AsFd> Async<T> {
         let registration = unsafe { Registration::new(fd) };
 
         Ok(Async {
-            source: Reactor::get().insert_io(registration)?,
-            io: Some(io),
+            source: ArcSource(Reactor::get().insert_io(registration)?),
+            io,
         })
     }
 }
@@ -760,8 +761,8 @@ impl<T: AsSocket> Async<T> {
         let registration = unsafe { Registration::new(borrowed) };
 
         Ok(Async {
-            source: Reactor::get().insert_io(registration)?,
-            io: Some(io),
+            source: ArcSource(Reactor::get().insert_io(registration)?),
+            io: io,
         })
     }
 }
@@ -813,7 +814,7 @@ impl<T> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn get_ref(&self) -> &T {
-        self.io.as_ref().unwrap()
+        &self.io
     }
 
     /// Gets a mutable reference to the inner I/O handle.
@@ -834,7 +835,7 @@ impl<T> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub unsafe fn get_mut(&mut self) -> &mut T {
-        self.io.as_mut().unwrap()
+        &mut self.io
     }
 
     /// Unwraps the inner I/O handle.
@@ -855,9 +856,8 @@ impl<T> Async<T> {
     /// inner.set_nonblocking(false)?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub fn into_inner(mut self) -> io::Result<T> {
-        let io = self.io.take().unwrap();
-        Reactor::get().remove_io(&self.source)?;
+    pub fn into_inner(self) -> io::Result<T> {
+        let Self { source: _, io } = self;
         Ok(io)
     }
 
@@ -1132,6 +1132,12 @@ impl<T> Async<T> {
 impl<T> AsRef<T> for Async<T> {
     fn as_ref(&self) -> &T {
         self.get_ref()
+    }
+}
+
+impl<T> AsMut<T> for Async<T> {
+    fn as_mut(&mut self) -> &mut T {
+        self.get_mut()
     }
 }
 
@@ -2065,4 +2071,22 @@ fn connect(addr: SockAddr, domain: Domain, protocol: Option<Protocol>) -> io::Re
         Err(err) => return Err(err),
     }
     Ok(socket)
+}
+
+#[derive(Debug)]
+struct ArcSource(Arc<Source>);
+
+impl Drop for ArcSource {
+    fn drop(&mut self) {
+        // Deregister and ignore errors because destructors should not panic.
+        Reactor::get().remove_io(&self.0).ok();
+    }
+}
+
+impl Deref for ArcSource {
+    type Target = Source;
+
+    fn deref(&self) -> &Self::Target {
+        self.0.deref()
+    }
 }
