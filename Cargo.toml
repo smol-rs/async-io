@@ -29,15 +29,12 @@ concurrent-queue = "2.2.0"
 futures-io = { version = "0.3.28", default-features = false, features = ["std"] }
 futures-lite = { version = "1.11.0", default-features = false }
 parking = "2.0.0"
-polling = "2.6.0"
+polling = "3.0.0"
 rustix = { version = "0.38.2", default-features = false, features = ["std", "fs"] }
 slab = "0.4.2"
 socket2 = { version = "0.5.3", features = ["all"] }
 tracing = { version = "0.1.37", default-features = false }
 waker-fn = "1.1.0"
-
-[build-dependencies]
-autocfg = "1"
 
 [dev-dependencies]
 async-channel = "1"
@@ -54,3 +51,6 @@ timerfd = "1"
 
 [target.'cfg(windows)'.dev-dependencies]
 uds_windows = "1"
+
+[patch.crates-io]
+async-io = { path = "." }
