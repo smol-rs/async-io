@@ -1161,24 +1161,24 @@ impl<T> Drop for Async<T> {
 ///
 /// This trait is an antidote to this predicament. By implementing this trait, the user pledges
 /// that using any I/O traits won't destroy the source. This way, [`Async`] can implement the
-/// `async` version of these I/O traits, like [`AsyncRead`], [`AsyncWrite`] and [`AsyncSeek`].
+/// `async` version of these I/O traits, like [`AsyncRead`] and [`AsyncWrite`].
 ///
 /// # Safety
 ///
 /// Any I/O trait implementations for this type must not drop the underlying I/O source. Traits
-/// affected by this trait include [`Read`], [`Write`] and [`Seek`].
+/// affected by this trait include [`Read`], [`Write`], [`Seek`] and [`BufRead`].
 ///
 /// This trait is implemented by default on top of `libstd` types. In addition, it is implemented
 /// for immutable reference types, as it is impossible to invalidate any outstanding references
 /// while holding an immutable reference, even with interior mutability. As Rust's current pinning
 /// system relies on similar guarantees, I believe that this approach is robust.
 ///
+/// [`BufRead`]: https://doc.rust-lang.org/std/io/trait.BufRead.html
 /// [`Read`]: https://doc.rust-lang.org/std/io/trait.Read.html
 /// [`Seek`]: https://doc.rust-lang.org/std/io/trait.Seek.html
 /// [`Write`]: https://doc.rust-lang.org/std/io/trait.Write.html
 ///
 /// [`AsyncRead`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncRead.html
-/// [`AsyncSeek`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncSeek.html
 /// [`AsyncWrite`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncWrite.html
 pub unsafe trait IoSafe {}
 
@@ -1187,7 +1187,12 @@ pub unsafe trait IoSafe {}
 /// The worst thing that can happen is that external state is used to change what kind of pointer
 /// `as_fd()` returns. For instance:
 ///
-/// ```no_compile
+/// ```
+/// # #[cfg(unix)] {
+/// use std::cell::Cell;
+/// use std::net::TcpStream;
+/// use std::os::unix::io::{AsFd, BorrowedFd};
+///
 /// struct Bar {
 ///     flag: Cell<bool>,
 ///     a: TcpStream,
@@ -1197,12 +1202,13 @@ pub unsafe trait IoSafe {}
 /// impl AsFd for Bar {
 ///     fn as_fd(&self) -> BorrowedFd<'_> {
 ///         if self.flag.replace(!self.flag.get()) {
-///             &self.a
+///             self.a.as_fd()
 ///         } else {
-///             &self.b
+///             self.b.as_fd()
 ///         }
 ///     }
 /// }
+/// # }
 /// ```
 ///
 /// We solve this problem by only calling `as_fd()` once to get the original source. Implementations
