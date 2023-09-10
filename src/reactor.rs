@@ -697,7 +697,7 @@ impl Deref for SourceContainer {
 mod test {
     use crate::reactor::Reactor;
     use crate::Async;
-    
+
     use std::net::TcpListener;
 
     #[test]
