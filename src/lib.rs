@@ -1159,8 +1159,8 @@ impl<T> Drop for Async<T> {
 /// traits take `&mut`, there is no guarantee that the implementor of those traits won't move the
 /// source out while the method is being run.
 ///
-/// This trait is an antidote to this predicament. By implementing this trait, it is guaranteed
-/// that using any I/O traits won't desroy the source. This way, [`Async`] can implement the
+/// This trait is an antidote to this predicament. By implementing this trait, the user pledges
+/// that using any I/O traits won't destroy the source. This way, [`Async`] can implement the
 /// `async` version of these I/O traits, like [`AsyncRead`], [`AsyncWrite`] and [`AsyncSeek`].
 ///
 /// # Safety
@@ -1182,10 +1182,32 @@ impl<T> Drop for Async<T> {
 /// [`AsyncWrite`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncWrite.html
 pub unsafe trait IoSafe {}
 
-// Reference types can't be mutated.
+/// Reference types can't be mutated.
+///
+/// The worst thing that can happen is that external state is used to change what kind of pointer
+/// `as_fd()` returns. For instance:
+///
+/// ```no_compile
+/// struct Bar {
+///     flag: Cell<bool>,
+///     a: TcpStream,
+///     b: TcpStream
+/// }
+///
+/// impl AsFd for Bar {
+///     fn as_fd(&self) -> BorrowedFd<'_> {
+///         if self.flag.replace(!self.flag.get()) {
+///             &self.a
+///         } else {
+///             &self.b
+///         }
+///     }
+/// }
+/// ```
+///
+/// We solve this problem by only calling `as_fd()` once to get the original source. Implementations
+/// like this are considered buggy (but not unsound) and are thus not really supported by `async-io`.
 unsafe impl<T: ?Sized> IoSafe for &T {}
-unsafe impl<T: ?Sized> IoSafe for std::rc::Rc<T> {}
-unsafe impl<T: ?Sized> IoSafe for Arc<T> {}
 
 // Can be implemented on top of libstd types.
 unsafe impl IoSafe for std::fs::File {}
