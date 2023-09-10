@@ -692,3 +692,29 @@ impl Deref for SourceContainer {
         self.0.deref()
     }
 }
+
+#[cfg(test)]
+mod test {
+    use crate::reactor::Reactor;
+    use crate::Async;
+    
+    use std::net::TcpListener;
+
+    #[test]
+    fn test_async_drop() {
+        let async_io =
+            Async::<TcpListener>::bind(([127, 0, 0, 1], 0)).expect("failed to create async io");
+        let key = async_io.source.key;
+        {
+            let sources = Reactor::get().sources.lock().unwrap();
+            let source = sources.get(key);
+            assert!(source.is_some());
+        }
+        drop(async_io);
+        {
+            let sources = Reactor::get().sources.lock().unwrap();
+            let source = sources.get(key);
+            assert!(source.is_none());
+        }
+    }
+}
