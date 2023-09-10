@@ -179,6 +179,9 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         loop {
             // Poll the future.
             if let Poll::Ready(t) = future.as_mut().poll(cx) {
+                // Ensure the cached parker is reset to the unnotified state for future block_on calls,
+                // in case this future called wake and then immediately returned Poll::Ready.
+                p.park_timeout(Duration::from_secs(0));
                 tracing::trace!("completed");
                 return t;
             }
