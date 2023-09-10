@@ -154,29 +154,24 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         static IO_POLLING: Cell<bool> = Cell::new(false);
     }
 
-    return CACHE.with(|cache| {
+    CACHE.with(|cache| {
         // Try grabbing the cached parker and waker.
-        match cache.try_borrow_mut() {
+        let tmp_cached;
+        let tmp_fresh;
+        let (p, waker, io_blocked) = match cache.try_borrow_mut() {
             Ok(cache) => {
                 // Use the cached parker and waker.
-                let (parker, waker, io_blocked) = &*cache;
-                block_on_inner(future, parker, waker, io_blocked)
+                tmp_cached = cache;
+                &*tmp_cached
             }
             Err(_) => {
                 // Looks like this is a recursive `block_on()` call.
                 // Create a fresh parker and waker.
-                let (parker, waker, io_blocked) = parker_and_waker();
-                block_on_inner(future, &parker, &waker, &io_blocked)
+                tmp_fresh = parker_and_waker();
+                &tmp_fresh
             }
-        }
-    });
+        };
 
-    fn block_on_inner<T>(
-        future: impl Future<Output = T>,
-        p: &Parker,
-        waker: &Waker,
-        io_blocked: &Arc<AtomicBool>,
-    ) -> T {
         pin!(future);
 
         let cx = &mut Context::from_waker(waker);
@@ -262,7 +257,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
                 p.park();
             }
         }
-    }
+    })
 }
 
 /// Runs a closure when dropped.
