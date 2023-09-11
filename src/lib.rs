@@ -70,7 +70,6 @@ use std::sync::Arc;
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-use std::ops::Deref;
 #[cfg(unix)]
 use std::{
     os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd},
@@ -1132,24 +1131,6 @@ impl<T> Async<T> {
 impl<T> AsRef<T> for Async<T> {
     fn as_ref(&self) -> &T {
         self.get_ref()
-    }
-}
-
-impl<T> AsMut<T> for Async<T> {
-    fn as_mut(&mut self) -> &mut T {
-        self.get_mut()
-    }
-}
-
-impl<T> Drop for Async<T> {
-    fn drop(&mut self) {
-        if self.io.is_some() {
-            // Deregister and ignore errors because destructors should not panic.
-            Reactor::get().remove_io(&self.source).ok();
-
-            // Drop the I/O handle to close it.
-            self.io.take();
-        }
     }
 }
 
