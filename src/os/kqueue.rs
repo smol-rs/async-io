@@ -3,7 +3,7 @@
 use __private::QueueableSealed;
 
 use crate::reactor::{Reactor, Readable, Registration};
-use crate::{Async, SourceContainer};
+use crate::Async;
 
 use std::convert::{TryFrom, TryInto};
 use std::future::Future;
@@ -57,7 +57,7 @@ impl<T: Queueable> Filter<T> {
     /// ```
     pub fn new(mut filter: T) -> Result<Self> {
         Ok(Self(Async {
-            source: SourceContainer(Reactor::get().insert_io(filter.registration())?),
+            source: Reactor::get().insert_io(filter.registration())?.into(),
             io: filter,
         }))
     }

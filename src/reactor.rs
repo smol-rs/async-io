@@ -676,12 +676,18 @@ impl<H: Borrow<crate::Async<T>>, T> Drop for Ready<H, T> {
 }
 
 #[derive(Debug)]
-pub(crate) struct SourceContainer(pub(crate) Arc<Source>);
+pub(crate) struct SourceContainer(Arc<Source>);
+
+impl SourceContainer {
+    pub(crate) fn remove(&mut self) -> io::Result<()> {
+        // Deregister and ignore errors because destructors should not panic.
+        Reactor::get().remove_io(&self.0)
+    }
+}
 
 impl Drop for SourceContainer {
     fn drop(&mut self) {
-        // Deregister and ignore errors because destructors should not panic.
-        Reactor::get().remove_io(&self.0).ok();
+        self.remove().ok();
     }
 }
 
@@ -693,6 +699,12 @@ impl Deref for SourceContainer {
     }
 }
 
+impl From<Arc<Source>> for SourceContainer {
+    fn from(value: Arc<Source>) -> Self {
+        Self(value)
+    }
+}
+
 #[cfg(test)]
 mod test {
     use crate::reactor::Reactor;
@@ -700,21 +712,26 @@ mod test {
 
     use std::net::TcpListener;
 
-    #[test]
-    fn test_async_drop() {
+    fn test_async_remove_io_impl<T>(f: impl FnOnce(Async<TcpListener>) -> T) {
         let async_io =
-            Async::<TcpListener>::bind(([127, 0, 0, 1], 0)).expect("failed to create async io");
+            Async::<TcpListener>::bind(([127, 0, 0, 1], 0)).expect("failed to bind TCP listener");
         let key = async_io.source.key;
         {
             let sources = Reactor::get().sources.lock().unwrap();
             let source = sources.get(key);
             assert!(source.is_some());
         }
-        drop(async_io);
+        f(async_io);
         {
             let sources = Reactor::get().sources.lock().unwrap();
             let source = sources.get(key);
             assert!(source.is_none());
         }
+    }
+
+    #[test]
+    fn test_async_remove_io() {
+        test_async_remove_io_impl(Async::into_inner);
+        test_async_remove_io_impl(drop);
     }
 }
