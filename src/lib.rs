@@ -760,7 +760,7 @@ impl<T: AsSocket> Async<T> {
         let registration = unsafe { Registration::new(borrowed) };
 
         Ok(Async {
-            source: SourceContainer(Reactor::get().insert_io(registration)?),
+            source: Reactor::get().insert_io(registration)?.into(),
             io: io,
         })
     }
