@@ -53,6 +53,7 @@
 //! # std::io::Result::Ok(()) });
 //! ```
 
+#![allow(clippy::needless_pass_by_ref_mut)]
 #![warn(missing_docs, missing_debug_implementations, rust_2018_idioms)]
 #![doc(
     html_favicon_url = "https://raw.githubusercontent.com/smol-rs/smol/master/assets/images/logo_fullsize_transparent.png"
