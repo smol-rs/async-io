@@ -25,13 +25,13 @@ use std::task::{Context, Poll};
 /// - Timer
 ///
 /// This structure can be used to wait for any of these objects to become ready.
-/// 
+///
 /// ## Implementation
-/// 
+///
 /// The current implementation waits on the handle by registering it in the application-global
 /// Win32 threadpool. However, in the futur it may be possible to migrate to an implementation
 /// on Windows 10 that uses a mechanism similar to [`MsgWaitForMultipleObjectsEx`].
-/// 
+///
 /// [`MsgWaitForMultipleObjectsEx`]: https://docs.microsoft.com/en-us/windows/win32/api/winuser/nf-winuser-msgwaitformultipleobjectsex
 ///
 /// ## Caveats
