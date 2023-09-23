@@ -1,3 +1,5 @@
+#![cfg(not(target_family = "wasm"))]
+
 use std::future::Future;
 use std::io;
 use std::net::{Shutdown, TcpListener, TcpStream, UdpSocket};

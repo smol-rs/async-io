@@ -23,11 +23,13 @@ name = "timer"
 harness = false
 
 [dependencies]
-async-lock = "2.6"
 cfg-if = "1"
+futures-lite = { version = "1.11.0", default-features = false }
+
+[target.'cfg(not(target_family = "wasm"))'.dependencies]
+async-lock = "2.6"
 concurrent-queue = "2.2.0"
 futures-io = { version = "0.3.28", default-features = false, features = ["std"] }
-futures-lite = { version = "1.11.0", default-features = false }
 parking = "2.0.0"
 polling = "3.0.0"
 rustix = { version = "0.38.2", default-features = false, features = ["std", "fs"] }
@@ -36,14 +38,27 @@ socket2 = { version = "0.5.3", features = ["all"] }
 tracing = { version = "0.1.37", default-features = false }
 waker-fn = "1.1.0"
 
+[target.'cfg(target_family = "wasm")'.dependencies]
+atomic-waker = "1.1.1"
+wasm-bindgen = "0.2.87"
+web-sys = { version = "0.3.0", features = ["Window"] }
+
 [dev-dependencies]
 async-channel = "1"
+
+[target.'cfg(not(target_family = "wasm"))'.dev-dependencies]
 async-net = "1"
 blocking = "1"
 criterion = { version = "0.4", default-features = false, features = ["cargo_bench_support"] }
 getrandom = "0.2.7"
 signal-hook = "0.3"
 tempfile = "3"
+
+[target.'cfg(target_family = "wasm")'.dev-dependencies]
+console_error_panic_hook = "0.1.7"
+wasm-bindgen-futures = "0.4.37"
+wasm-bindgen-test = "0.3.37"
+web-time = "0.2.0"
 
 [target.'cfg(target_os = "linux")'.dev-dependencies]
 inotify = { version = "0.10.1", default-features = false }

@@ -64,23 +64,31 @@
 use std::future::Future;
 use std::pin::Pin;
 use std::task::{Context, Poll};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+
+#[cfg(not(target_family = "wasm"))]
+use std::time::Instant;
 
 use futures_lite::stream::Stream;
 
-use crate::reactor::Reactor;
-
+#[cfg(not(target_family = "wasm"))]
 mod driver;
+#[cfg(not(target_family = "wasm"))]
 mod io;
+#[cfg(not(target_family = "wasm"))]
 mod reactor;
 
-#[path = "timer/native.rs"]
+#[cfg_attr(not(target_family = "wasm"), path = "timer/native.rs")]
+#[cfg_attr(target_family = "wasm", path = "timer/web.rs")]
 mod timer;
 
 pub mod os;
 
+#[cfg(not(target_family = "wasm"))]
 pub use driver::block_on;
+#[cfg(not(target_family = "wasm"))]
 pub use io::{Async, IoSafe};
+#[cfg(not(target_family = "wasm"))]
 pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 
 /// A future or stream that emits timed events.
@@ -197,6 +205,7 @@ impl Timer {
     /// Timer::at(when).await;
     /// # });
     /// ```
+    #[cfg(not(target_family = "wasm"))]
     #[inline]
     pub fn at(instant: Instant) -> Timer {
         Timer(timer::Timer::at(instant))
@@ -236,6 +245,7 @@ impl Timer {
     /// Timer::interval_at(start, period).next().await;
     /// # });
     /// ```
+    #[cfg(not(target_family = "wasm"))]
     #[inline]
     pub fn interval_at(start: Instant, period: Duration) -> Timer {
         Timer(timer::Timer::interval_at(start, period))
@@ -325,6 +335,7 @@ impl Timer {
     /// t.set_at(when);
     /// # });
     /// ```
+    #[cfg(not(target_family = "wasm"))]
     #[inline]
     pub fn set_at(&mut self, instant: Instant) {
         self.0.set_at(instant)
@@ -376,6 +387,7 @@ impl Timer {
     /// t.set_interval_at(start, period);
     /// # });
     /// ```
+    #[cfg(not(target_family = "wasm"))]
     #[inline]
     pub fn set_interval_at(&mut self, start: Instant, period: Duration) {
         self.0.set_interval_at(start, period)
@@ -383,7 +395,11 @@ impl Timer {
 }
 
 impl Future for Timer {
+    #[cfg(not(target_family = "wasm"))]
     type Output = Instant;
+
+    #[cfg(target_family = "wasm")]
+    type Output = ();
 
     #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
@@ -396,7 +412,11 @@ impl Future for Timer {
 }
 
 impl Stream for Timer {
+    #[cfg(not(target_family = "wasm"))]
     type Item = Instant;
+
+    #[cfg(target_family = "wasm")]
+    type Item = ();
 
     #[inline]
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {

@@ -1,3 +1,5 @@
+#![cfg(not(target_family = "wasm"))]
+
 use async_io::block_on;
 use std::{
     future::Future,
