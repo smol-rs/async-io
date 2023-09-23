@@ -63,7 +63,7 @@
 
 use std::future::Future;
 use std::pin::Pin;
-use std::task::{Context, Poll, Waker};
+use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
 use futures_lite::stream::Stream;
@@ -73,6 +73,9 @@ use crate::reactor::Reactor;
 mod driver;
 mod io;
 mod reactor;
+
+#[path = "timer/native.rs"]
+mod timer;
 
 pub mod os;
 
@@ -123,22 +126,7 @@ pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 /// # std::io::Result::Ok(()) });
 /// ```
 #[derive(Debug)]
-pub struct Timer {
-    /// This timer's ID and last waker that polled it.
-    ///
-    /// When this field is set to `None`, this timer is not registered in the reactor.
-    id_and_waker: Option<(usize, Waker)>,
-
-    /// The next instant at which this timer fires.
-    ///
-    /// If this timer is a blank timer, this value is None. If the timer
-    /// must be set, this value contains the next instant at which the
-    /// timer must fire.
-    when: Option<Instant>,
-
-    /// The period.
-    period: Duration,
-}
+pub struct Timer(timer::Timer);
 
 impl Timer {
     /// Creates a timer that will never fire.
@@ -173,12 +161,9 @@ impl Timer {
     /// run_with_timeout(None).await;
     /// # });
     /// ```
+    #[inline]
     pub fn never() -> Timer {
-        Timer {
-            id_and_waker: None,
-            when: None,
-            period: Duration::MAX,
-        }
+        Timer(timer::Timer::never())
     }
 
     /// Creates a timer that emits an event once after the given duration of time.
@@ -193,10 +178,9 @@ impl Timer {
     /// Timer::after(Duration::from_secs(1)).await;
     /// # });
     /// ```
+    #[inline]
     pub fn after(duration: Duration) -> Timer {
-        Instant::now()
-            .checked_add(duration)
-            .map_or_else(Timer::never, Timer::at)
+        Timer(timer::Timer::after(duration))
     }
 
     /// Creates a timer that emits an event once at the given time instant.
@@ -213,8 +197,9 @@ impl Timer {
     /// Timer::at(when).await;
     /// # });
     /// ```
+    #[inline]
     pub fn at(instant: Instant) -> Timer {
-        Timer::interval_at(instant, Duration::MAX)
+        Timer(timer::Timer::at(instant))
     }
 
     /// Creates a timer that emits events periodically.
@@ -231,10 +216,9 @@ impl Timer {
     /// Timer::interval(period).next().await;
     /// # });
     /// ```
+    #[inline]
     pub fn interval(period: Duration) -> Timer {
-        Instant::now()
-            .checked_add(period)
-            .map_or_else(Timer::never, |at| Timer::interval_at(at, period))
+        Timer(timer::Timer::interval(period))
     }
 
     /// Creates a timer that emits events periodically, starting at `start`.
@@ -252,12 +236,9 @@ impl Timer {
     /// Timer::interval_at(start, period).next().await;
     /// # });
     /// ```
+    #[inline]
     pub fn interval_at(start: Instant, period: Duration) -> Timer {
-        Timer {
-            id_and_waker: None,
-            when: Some(start),
-            period,
-        }
+        Timer(timer::Timer::interval_at(start, period))
     }
 
     /// Indicates whether or not this timer will ever fire.
@@ -299,7 +280,7 @@ impl Timer {
     /// ```
     #[inline]
     pub fn will_fire(&self) -> bool {
-        self.when.is_some()
+        self.0.will_fire()
     }
 
     /// Sets the timer to emit an en event once after the given duration of time.
@@ -319,15 +300,9 @@ impl Timer {
     /// t.set_after(Duration::from_millis(100));
     /// # });
     /// ```
+    #[inline]
     pub fn set_after(&mut self, duration: Duration) {
-        match Instant::now().checked_add(duration) {
-            Some(instant) => self.set_at(instant),
-            None => {
-                // Overflow to never going off.
-                self.clear();
-                self.when = None;
-            }
-        }
+        self.0.set_after(duration)
     }
 
     /// Sets the timer to emit an event once at the given time instant.
@@ -350,16 +325,9 @@ impl Timer {
     /// t.set_at(when);
     /// # });
     /// ```
+    #[inline]
     pub fn set_at(&mut self, instant: Instant) {
-        self.clear();
-
-        // Update the timeout.
-        self.when = Some(instant);
-
-        if let Some((id, waker)) = self.id_and_waker.as_mut() {
-            // Re-register the timer with the new timeout.
-            *id = Reactor::get().insert_timer(instant, waker);
-        }
+        self.0.set_at(instant)
     }
 
     /// Sets the timer to emit events periodically.
@@ -382,15 +350,9 @@ impl Timer {
     /// t.set_interval(period);
     /// # });
     /// ```
+    #[inline]
     pub fn set_interval(&mut self, period: Duration) {
-        match Instant::now().checked_add(period) {
-            Some(instant) => self.set_interval_at(instant, period),
-            None => {
-                // Overflow to never going off.
-                self.clear();
-                self.when = None;
-            }
-        }
+        self.0.set_interval(period)
     }
 
     /// Sets the timer to emit events periodically, starting at `start`.
@@ -414,39 +376,16 @@ impl Timer {
     /// t.set_interval_at(start, period);
     /// # });
     /// ```
+    #[inline]
     pub fn set_interval_at(&mut self, start: Instant, period: Duration) {
-        self.clear();
-
-        self.when = Some(start);
-        self.period = period;
-
-        if let Some((id, waker)) = self.id_and_waker.as_mut() {
-            // Re-register the timer with the new timeout.
-            *id = Reactor::get().insert_timer(start, waker);
-        }
-    }
-
-    /// Helper function to clear the current timer.
-    fn clear(&mut self) {
-        if let (Some(when), Some((id, _))) = (self.when, self.id_and_waker.as_ref()) {
-            // Deregister the timer from the reactor.
-            Reactor::get().remove_timer(when, *id);
-        }
-    }
-}
-
-impl Drop for Timer {
-    fn drop(&mut self) {
-        if let (Some(when), Some((id, _))) = (self.when, self.id_and_waker.take()) {
-            // Deregister the timer from the reactor.
-            Reactor::get().remove_timer(when, id);
-        }
+        self.0.set_interval_at(start, period)
     }
 }
 
 impl Future for Timer {
     type Output = Instant;
 
+    #[inline]
     fn poll(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.poll_next(cx) {
             Poll::Ready(Some(when)) => Poll::Ready(when),
@@ -459,46 +398,8 @@ impl Future for Timer {
 impl Stream for Timer {
     type Item = Instant;
 
-    fn poll_next(self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
-        let this = self.get_mut();
-
-        if let Some(ref mut when) = this.when {
-            // Check if the timer has already fired.
-            if Instant::now() >= *when {
-                if let Some((id, _)) = this.id_and_waker.take() {
-                    // Deregister the timer from the reactor.
-                    Reactor::get().remove_timer(*when, id);
-                }
-                let result_time = *when;
-                if let Some(next) = (*when).checked_add(this.period) {
-                    *when = next;
-                    // Register the timer in the reactor.
-                    let id = Reactor::get().insert_timer(next, cx.waker());
-                    this.id_and_waker = Some((id, cx.waker().clone()));
-                } else {
-                    this.when = None;
-                }
-                return Poll::Ready(Some(result_time));
-            } else {
-                match &this.id_and_waker {
-                    None => {
-                        // Register the timer in the reactor.
-                        let id = Reactor::get().insert_timer(*when, cx.waker());
-                        this.id_and_waker = Some((id, cx.waker().clone()));
-                    }
-                    Some((id, w)) if !w.will_wake(cx.waker()) => {
-                        // Deregister the timer from the reactor to remove the old waker.
-                        Reactor::get().remove_timer(*when, *id);
-
-                        // Register the timer in the reactor with the new waker.
-                        let id = Reactor::get().insert_timer(*when, cx.waker());
-                        this.id_and_waker = Some((id, cx.waker().clone()));
-                    }
-                    Some(_) => {}
-                }
-            }
-        }
-
-        Poll::Pending
+    #[inline]
+    fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
+        self.0.poll_next(cx)
     }
 }
