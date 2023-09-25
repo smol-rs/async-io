@@ -1,3 +1,15 @@
+# Version 2.0.0
+
+- **Breaking:** `Async::new()` now takes types that implement `AsFd`/`AsSocket` instead of `AsRawFd`/`AsRawSocket`, in order to implement I/O safety. (#142)
+- **Breaking:** `Async::get_mut()`, `Async::read_with_mut()` and `Async::write_with_mut()` are now `unsafe`. The underlying source is technically "borrowed" by the polling instance, so moving it out would be unsound. (#142)
+- Expose miscellaneous `kqueue` filters in the `os::kqueue` module. (#112)
+- Expose a way to get the underlying `Poller`'s file descriptor on Unix. (#125)
+- Add a new `Async::new_nonblocking` method to allow users to avoid duplicating an already nonblocking socket. (#159)
+- Remove the unused `fastrand` and `memchr` dependencies. (#131)
+- Use `tracing` instead of `log`. (#140)
+- Support ESP-IDF. (#144)
+- Optimize the `block_on` function to reduce allocation, leading to a slight performance improvement. (#149)
+
 # Version 1.13.0
 
 - Use [`rustix`] instead of [`libc`]/[`windows-sys`] for system calls (#76)
