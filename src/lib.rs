@@ -66,29 +66,35 @@ use std::pin::Pin;
 use std::task::{Context, Poll};
 use std::time::Duration;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::time::Instant;
 
 use futures_lite::stream::Stream;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 mod driver;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 mod io;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 mod reactor;
 
-#[cfg_attr(not(target_family = "wasm"), path = "timer/native.rs")]
-#[cfg_attr(target_family = "wasm", path = "timer/web.rs")]
+#[cfg_attr(
+    not(all(target_family = "wasm", not(target_os = "wasi"))),
+    path = "timer/native.rs"
+)]
+#[cfg_attr(
+    all(target_family = "wasm", not(target_os = "wasi")),
+    path = "timer/web.rs"
+)]
 mod timer;
 
 pub mod os;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 pub use driver::block_on;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 pub use io::{Async, IoSafe};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 
 /// A future or stream that emits timed events.
@@ -205,7 +211,7 @@ impl Timer {
     /// Timer::at(when).await;
     /// # });
     /// ```
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
     #[inline]
     pub fn at(instant: Instant) -> Timer {
         Timer(timer::Timer::at(instant))
@@ -245,7 +251,7 @@ impl Timer {
     /// Timer::interval_at(start, period).next().await;
     /// # });
     /// ```
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
     #[inline]
     pub fn interval_at(start: Instant, period: Duration) -> Timer {
         Timer(timer::Timer::interval_at(start, period))
@@ -335,7 +341,7 @@ impl Timer {
     /// t.set_at(when);
     /// # });
     /// ```
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
     #[inline]
     pub fn set_at(&mut self, instant: Instant) {
         self.0.set_at(instant)
@@ -387,7 +393,7 @@ impl Timer {
     /// t.set_interval_at(start, period);
     /// # });
     /// ```
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
     #[inline]
     pub fn set_interval_at(&mut self, start: Instant, period: Duration) {
         self.0.set_interval_at(start, period)
@@ -395,10 +401,10 @@ impl Timer {
 }
 
 impl Future for Timer {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
     type Output = Instant;
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
     type Output = ();
 
     #[inline]
@@ -412,10 +418,10 @@ impl Future for Timer {
 }
 
 impl Stream for Timer {
-    #[cfg(not(target_family = "wasm"))]
+    #[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
     type Item = Instant;
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
     type Item = ();
 
     #[inline]

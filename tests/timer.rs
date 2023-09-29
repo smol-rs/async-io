@@ -1,26 +1,26 @@
 use std::future::Future;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::pin::Pin;
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::sync::{Arc, Mutex};
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::thread;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::time::{Duration, Instant};
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
 use web_time::{Duration, Instant};
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
 wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 use async_io::Timer;
 use futures_lite::{FutureExt, StreamExt};
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use futures_lite::future;
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 fn spawn<T: Send + 'static>(
     f: impl Future<Output = T> + Send + 'static,
 ) -> impl Future<Output = T> + Send + 'static {
@@ -35,11 +35,11 @@ fn spawn<T: Send + 'static>(
     Box::pin(async move { r.recv().await.unwrap() })
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
 fn spawn<T: 'static>(f: impl Future<Output = T> + 'static) -> impl Future<Output = T> + 'static {
     let (s, r) = async_channel::bounded(1);
 
-    #[cfg(target_family = "wasm")]
+    #[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
     wasm_bindgen_futures::spawn_local(async move {
         s.send(f.await).await.ok();
     });
@@ -47,7 +47,7 @@ fn spawn<T: 'static>(f: impl Future<Output = T> + 'static) -> impl Future<Output
     Box::pin(async move { r.recv().await.unwrap() })
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 macro_rules! test {
     (
         $(#[$meta:meta])*
@@ -63,7 +63,7 @@ macro_rules! test {
     };
 }
 
-#[cfg(target_family = "wasm")]
+#[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
 macro_rules! test {
     (
         $(#[$meta:meta])*
@@ -132,7 +132,7 @@ test! {
     }
 }
 
-#[cfg(not(target_family = "wasm"))]
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 #[test]
 fn set() {
     future::block_on(async {
