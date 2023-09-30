@@ -53,7 +53,7 @@ jobs:
       - run: cargo test
       - uses: taiki-e/install-action@wasm-pack
       - run: cargo check --target wasm32-unknown-unknown --all-features --tests
-      - run: wasm-pack test --node
+      - run: wasm-pack test --firefox --headless
 
   # Copied from: https://github.com/rust-lang/stacker/pull/19/files
   windows_gnu:
