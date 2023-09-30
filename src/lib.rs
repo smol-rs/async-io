@@ -658,23 +658,7 @@ impl<T: AsFd> Async<T> {
     pub fn new(io: T) -> io::Result<Async<T>> {
         // Put the file descriptor in non-blocking mode.
         let fd = io.as_fd();
-        cfg_if::cfg_if! {
-            // ioctl(FIONBIO) sets the flag atomically, but we use this only on Linux
-            // for now, as with the standard library, because it seems to behave
-            // differently depending on the platform.
-            // https://github.com/rust-lang/rust/commit/efeb42be2837842d1beb47b51bb693c7474aba3d
-            // https://github.com/libuv/libuv/blob/e9d91fccfc3e5ff772d5da90e1c4a24061198ca0/src/unix/poll.c#L78-L80
-            // https://github.com/tokio-rs/mio/commit/0db49f6d5caf54b12176821363d154384357e70a
-            if #[cfg(target_os = "linux")] {
-                rustix::io::ioctl_fionbio(fd, true)?;
-            } else {
-                let previous = rustix::fs::fcntl_getfl(fd)?;
-                let new = previous | rustix::fs::OFlags::NONBLOCK;
-                if new != previous {
-                    rustix::fs::fcntl_setfl(fd, new)?;
-                }
-            }
-        }
+        set_nonblocking(fd)?;
 
         // SAFETY: It is impossible to drop the I/O source while it is registered through
         // this type.
@@ -2045,6 +2029,8 @@ fn connect(
     domain: rn::AddressFamily,
     protocol: Option<rn::Protocol>,
 ) -> io::Result<rustix::fd::OwnedFd> {
+    use rustix::fd::AsFd;
+
     #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -2078,9 +2064,8 @@ fn connect(
             target_os = "ios",
             target_os = "tvos",
             target_os = "watchos",
+            target_os = "esp-idf",
             windows,
-            target_os = "aix",
-            target_os = "haiku"
         )))]
         let flags = rn::SocketFlags::CLOEXEC;
         #[cfg(any(
@@ -2088,9 +2073,8 @@ fn connect(
             target_os = "ios",
             target_os = "tvos",
             target_os = "watchos",
+            target_os = "esp-idf",
             windows,
-            target_os = "aix",
-            target_os = "haiku"
         ))]
         let flags = rn::SocketFlags::empty();
 
@@ -2107,7 +2091,7 @@ fn connect(
         rio::fcntl_setfd(&socket, rio::fcntl_getfd(&socket)? | rio::FdFlags::CLOEXEC)?;
 
         // Set non-blocking mode.
-        rio::ioctl_fionbio(&socket, true)?;
+        set_nonblocking(socket.as_fd())?;
 
         socket
     };
@@ -2118,16 +2102,57 @@ fn connect(
         target_os = "ios",
         target_os = "tvos",
         target_os = "watchos",
-        target_os = "freebsd"
+        target_os = "freebsd",
+        target_os = "netbsd"
     ))]
     rn::sockopt::set_socket_nosigpipe(&socket, true)?;
 
+    // Set the handle information to HANDLE_FLAG_INHERIT.
+    #[cfg(windows)]
+    unsafe {
+        if windows_sys::Win32::Foundation::SetHandleInformation(
+            socket.as_raw_socket() as _,
+            windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT,
+            windows_sys::Win32::Foundation::HANDLE_FLAG_INHERIT,
+        ) == 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+    }
+
+    #[allow(unreachable_patterns)]
     match rn::connect_any(&socket, &addr) {
         Ok(_) => {}
         #[cfg(unix)]
         Err(rio::Errno::INPROGRESS) => {}
-        Err(rio::Errno::AGAIN) => {}
+        Err(rio::Errno::AGAIN) | Err(rio::Errno::WOULDBLOCK) => {}
         Err(err) => return Err(err.into()),
     }
     Ok(socket)
+}
+
+#[inline]
+fn set_nonblocking(
+    #[cfg(unix)] fd: BorrowedFd<'_>,
+    #[cfg(windows)] fd: BorrowedSocket<'_>,
+) -> io::Result<()> {
+    cfg_if::cfg_if! {
+        // ioctl(FIONBIO) sets the flag atomically, but we use this only on Linux
+        // for now, as with the standard library, because it seems to behave
+        // differently depending on the platform.
+        // https://github.com/rust-lang/rust/commit/efeb42be2837842d1beb47b51bb693c7474aba3d
+        // https://github.com/libuv/libuv/blob/e9d91fccfc3e5ff772d5da90e1c4a24061198ca0/src/unix/poll.c#L78-L80
+        // https://github.com/tokio-rs/mio/commit/0db49f6d5caf54b12176821363d154384357e70a
+        if #[cfg(any(windows, target_os = "linux"))] {
+            rustix::io::ioctl_fionbio(fd, true)?;
+        } else {
+            let previous = rustix::fs::fcntl_getfl(fd)?;
+            let new = previous | rustix::fs::OFlags::NONBLOCK;
+            if new != previous {
+                rustix::fs::fcntl_setfl(fd, new)?;
+            }
+        }
+    }
+
+    Ok(())
 }
