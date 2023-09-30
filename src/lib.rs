@@ -2029,6 +2029,7 @@ fn connect(
     domain: rn::AddressFamily,
     protocol: Option<rn::Protocol>,
 ) -> io::Result<rustix::fd::OwnedFd> {
+    #[cfg(windows)]
     use rustix::fd::AsFd;
 
     #[cfg(any(
