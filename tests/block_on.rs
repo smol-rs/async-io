@@ -1,3 +1,5 @@
+#![cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
+
 use async_io::block_on;
 use std::{
     future::Future,

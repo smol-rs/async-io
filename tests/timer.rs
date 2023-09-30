@@ -1,12 +1,26 @@
 use std::future::Future;
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::pin::Pin;
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::sync::{Arc, Mutex};
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::thread;
+
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 use std::time::{Duration, Instant};
+#[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
+use web_time::{Duration, Instant};
+
+#[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
+wasm_bindgen_test::wasm_bindgen_test_configure!(run_in_browser);
 
 use async_io::Timer;
-use futures_lite::{future, FutureExt, StreamExt};
+use futures_lite::{FutureExt, StreamExt};
 
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
+use futures_lite::future;
+
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 fn spawn<T: Send + 'static>(
     f: impl Future<Output = T> + Send + 'static,
 ) -> impl Future<Output = T> + Send + 'static {
@@ -21,18 +35,60 @@ fn spawn<T: Send + 'static>(
     Box::pin(async move { r.recv().await.unwrap() })
 }
 
-#[test]
-fn smoke() {
-    future::block_on(async {
+#[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
+fn spawn<T: 'static>(f: impl Future<Output = T> + 'static) -> impl Future<Output = T> + 'static {
+    let (s, r) = async_channel::bounded(1);
+
+    #[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
+    wasm_bindgen_futures::spawn_local(async move {
+        s.send(f.await).await.ok();
+    });
+
+    Box::pin(async move { r.recv().await.unwrap() })
+}
+
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
+macro_rules! test {
+    (
+        $(#[$meta:meta])*
+        async fn $name:ident () $bl:block
+    ) => {
+        #[test]
+        $(#[$meta])*
+        fn $name() {
+            futures_lite::future::block_on(async {
+                $bl
+            })
+        }
+    };
+}
+
+#[cfg(all(target_family = "wasm", not(target_os = "wasi")))]
+macro_rules! test {
+    (
+        $(#[$meta:meta])*
+        async fn $name:ident () $bl:block
+    ) => {
+        // wasm-bindgen-test handles waiting on the future for us
+        #[wasm_bindgen_test::wasm_bindgen_test]
+        $(#[$meta])*
+        async fn $name() {
+            console_error_panic_hook::set_once();
+            $bl
+        }
+    };
+}
+
+test! {
+    async fn smoke() {
         let start = Instant::now();
         Timer::after(Duration::from_secs(1)).await;
         assert!(start.elapsed() >= Duration::from_secs(1));
-    });
+    }
 }
 
-#[test]
-fn interval() {
-    future::block_on(async {
+test! {
+    async fn interval() {
         let period = Duration::from_secs(1);
         let jitter = Duration::from_millis(500);
         let start = Instant::now();
@@ -43,12 +99,11 @@ fn interval() {
         timer.next().await;
         let elapsed = start.elapsed();
         assert!(elapsed >= period * 2 && elapsed - period * 2 < jitter);
-    });
+    }
 }
 
-#[test]
-fn poll_across_tasks() {
-    future::block_on(async {
+test! {
+    async fn poll_across_tasks() {
         let start = Instant::now();
         let (sender, receiver) = async_channel::bounded(1);
 
@@ -74,9 +129,10 @@ fn poll_across_tasks() {
         task2.await;
 
         assert!(start.elapsed() >= Duration::from_secs(1));
-    });
+    }
 }
 
+#[cfg(not(all(target_family = "wasm", not(target_os = "wasi"))))]
 #[test]
 fn set() {
     future::block_on(async {

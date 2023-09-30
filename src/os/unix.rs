@@ -62,7 +62,7 @@ pub fn reactor_fd() -> Option<BorrowedFd<'static>> {
             not(polling_test_poll_backend),
         ))] {
             use std::os::unix::io::AsFd;
-            Some(crate::Reactor::get().poller.as_fd())
+            Some(crate::reactor::Reactor::get().poller.as_fd())
         } else {
             None
         }
