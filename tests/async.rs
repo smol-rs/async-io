@@ -8,6 +8,7 @@ use std::thread;
 use std::time::Duration;
 
 use async_io::{Async, Timer};
+use futures_lite::future::poll_fn;
 use futures_lite::{future, prelude::*};
 #[cfg(unix)]
 use tempfile::tempdir;
@@ -150,6 +151,25 @@ fn udp_send_recv() -> io::Result<()> {
         assert_eq!(&buf[..n], LOREM_IPSUM);
         let n = socket1.recv_from(&mut buf).await?.0;
         assert_eq!(&buf[..n], LOREM_IPSUM);
+
+        Ok(())
+    })
+}
+
+#[test]
+fn test_poll_writable_iterations() -> io::Result<()> {
+    future::block_on(async {
+        let socket = Async::<UdpSocket>::bind(([127, 0, 0, 1], 0))?;
+
+        let mut attempts = 0;
+
+        poll_fn(|cx| {
+            attempts += 1;
+            socket.poll_writable(cx)
+        })
+        .await?;
+
+        assert!(attempts < 5);
 
         Ok(())
     })
