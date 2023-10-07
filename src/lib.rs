@@ -2040,6 +2040,7 @@ fn connect(
         target_os = "illumos",
         target_os = "linux",
         target_os = "netbsd",
+        target_os = "openbsd"
     ))]
     let socket = rn::socket_with(
         domain,
@@ -2056,6 +2057,7 @@ fn connect(
         target_os = "illumos",
         target_os = "linux",
         target_os = "netbsd",
+        target_os = "openbsd"
     )))]
     let socket = {
         #[cfg(not(any(
@@ -2063,8 +2065,7 @@ fn connect(
             target_os = "ios",
             target_os = "tvos",
             target_os = "watchos",
-            target_os = "esp-idf",
-            target_os = "openbsd",
+            target_os = "espidf",
             windows,
         )))]
         let flags = rn::SocketFlags::CLOEXEC;
@@ -2073,8 +2074,7 @@ fn connect(
             target_os = "ios",
             target_os = "tvos",
             target_os = "watchos",
-            target_os = "esp-idf",
-            target_os = "openbsd",
+            target_os = "espidf",
             windows,
         ))]
         let flags = rn::SocketFlags::empty();
@@ -2088,7 +2088,6 @@ fn connect(
             target_os = "ios",
             target_os = "tvos",
             target_os = "watchos",
-            target_os = "openbsd"
         ))]
         rio::fcntl_setfd(&socket, rio::fcntl_getfd(&socket)? | rio::FdFlags::CLOEXEC)?;
 
