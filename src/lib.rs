@@ -656,8 +656,9 @@ impl<T: AsFd> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
-        // Put the file descriptor in non-blocking mode.
         let fd = io.as_fd();
+
+        // Put the file descriptor in non-blocking mode.
         set_nonblocking(fd)?;
 
         // SAFETY: It is impossible to drop the I/O source while it is registered through
@@ -733,11 +734,7 @@ impl<T: AsSocket> Async<T> {
         let borrowed = io.as_socket();
 
         // Put the socket in non-blocking mode.
-        //
-        // Safety: We assume `as_raw_socket()` returns a valid fd. When we can
-        // depend on Rust >= 1.63, where `AsFd` is stabilized, and when
-        // `TimerFd` implements it, we can remove this unsafe and simplify this.
-        rustix::io::ioctl_fionbio(borrowed, true)?;
+        set_nonblocking(borrowed)?;
 
         // Create the registration.
         //
