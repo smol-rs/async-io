@@ -1,8 +1,11 @@
+use std::cell::RefCell;
 use std::future::Future;
 use std::io;
 use std::net::{Shutdown, TcpListener, TcpStream, UdpSocket};
+use std::os::fd::AsFd;
 #[cfg(unix)]
 use std::os::unix::net::{UnixDatagram, UnixListener, UnixStream};
+use std::rc::Rc;
 use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
@@ -351,6 +354,32 @@ fn shutdown() -> io::Result<()> {
             writer.get_ref().shutdown(Shutdown::Write)
         })
         .await?;
+
+        Ok(())
+    })
+}
+
+// prevent source from unregistering by trying to register it twice
+#[test]
+fn duplicate_socket_insert() -> io::Result<()> {
+
+    future::block_on(async {
+        let (socket1, socket2) = match Async::<UnixStream>::pair() {
+            Ok((s1, s2)) => (Rc::new(RefCell::new(s1)), Rc::new(RefCell::new(s2))),
+            Err(_) => panic!("failed to create sockets")
+        };
+
+        // Attempt to register the same async socket again.
+        assert!(Async::new(socket1.borrow().as_fd()).is_err(), "fails upon second insert");
+
+        // Read and Write to confirm socket did not deregister on duplication attempt
+        // Write to socket1
+        socket1.borrow_mut().write_all(LOREM_IPSUM).await?;
+        // Read from socket2
+        let mut buffer = vec![0; LOREM_IPSUM.len()];
+        socket2.borrow_mut().read_exact(&mut buffer).await?;
+
+        assert_eq!(buffer, LOREM_IPSUM);
 
         Ok(())
     })
