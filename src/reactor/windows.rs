@@ -3,7 +3,7 @@
 use polling::{Event, Poller};
 use std::fmt;
 use std::io::Result;
-use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, RawSocket};
+use std::os::windows::io::{AsRawSocket, BorrowedSocket, RawSocket};
 
 /// The raw registration into the reactor.
 #[doc(hidden)]
@@ -29,9 +29,9 @@ impl Registration {
     /// # Safety
     ///
     /// The provided file descriptor must be valid and not be closed while this object is alive.
-    pub(crate) unsafe fn new(f: impl AsSocket) -> Self {
+    pub(crate) unsafe fn new(f: BorrowedSocket<'_>) -> Self {
         Self {
-            raw: f.as_socket().as_raw_socket(),
+            raw: f.as_raw_socket(),
         }
     }
 

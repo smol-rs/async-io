@@ -5,7 +5,6 @@ use __private::QueueableSealed;
 use crate::reactor::{Reactor, Readable, Registration};
 use crate::Async;
 
-use std::convert::{TryFrom, TryInto};
 use std::future::Future;
 use std::io::{Error, Result};
 use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};

@@ -181,7 +181,8 @@ fn udp_connect() -> io::Result<()> {
     })
 }
 
-#[cfg(unix)]
+// This test is broken for now on OpenBSD: https://github.com/rust-lang/rust/issues/116523
+#[cfg(all(unix, not(target_os = "openbsd")))]
 #[test]
 fn uds_connect() -> io::Result<()> {
     future::block_on(async {

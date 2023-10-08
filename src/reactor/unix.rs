@@ -4,7 +4,7 @@ use polling::{Event, Poller};
 
 use std::fmt;
 use std::io::Result;
-use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, RawFd};
+use std::os::unix::io::{AsRawFd, BorrowedFd, RawFd};
 
 /// The raw registration into the reactor.
 #[doc(hidden)]
@@ -30,10 +30,8 @@ impl Registration {
     /// # Safety
     ///
     /// The provided file descriptor must be valid and not be closed while this object is alive.
-    pub(crate) unsafe fn new(f: impl AsFd) -> Self {
-        Self {
-            raw: f.as_fd().as_raw_fd(),
-        }
+    pub(crate) unsafe fn new(f: BorrowedFd<'_>) -> Self {
+        Self { raw: f.as_raw_fd() }
     }
 
     /// Registers the object into the reactor.
