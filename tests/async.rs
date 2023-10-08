@@ -363,25 +363,37 @@ fn shutdown() -> io::Result<()> {
 // prevent source from unregistering by trying to register it twice
 #[test]
 fn duplicate_socket_insert() -> io::Result<()> {
-
     future::block_on(async {
         let (socket1, socket2) = match Async::<UnixStream>::pair() {
             Ok((s1, s2)) => (Rc::new(RefCell::new(s1)), Rc::new(RefCell::new(s2))),
-            Err(_) => panic!("failed to create sockets")
+            Err(_) => panic!("failed to create sockets"),
         };
 
         // Attempt to register the same async socket again.
-        assert!(Async::new(socket1.borrow().as_fd()).is_err(), "fails upon second insert");
+        assert!(
+            Async::new(socket1.borrow().as_fd()).is_err(),
+            "fails upon second insert"
+        );
 
         // Read and Write to confirm socket did not deregister on duplication attempt
         // Write to socket1
-        socket1.borrow_mut().write_all(LOREM_IPSUM).await?;
-        // Read from socket2
+        future::block_on(async {
+            match socket1.borrow_mut().write_all(LOREM_IPSUM).await {
+                Ok(_) => (),
+                Err(error) => panic!("{}", error),
+            };
+        });
+
+        // Read from socket2 as additional confirmation
         let mut buffer = vec![0; LOREM_IPSUM.len()];
-        socket2.borrow_mut().read_exact(&mut buffer).await?;
+        future::block_on(async {
+            match socket2.borrow_mut().read_exact(&mut buffer).await {
+                Ok(_) => (),
+                Err(error) => panic!("{}", error),
+            };
+        });
 
         assert_eq!(buffer, LOREM_IPSUM);
-
         Ok(())
     })
 }
