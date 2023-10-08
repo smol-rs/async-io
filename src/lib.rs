@@ -656,14 +656,16 @@ impl<T: AsFd> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
-        let fd = io.as_fd();
-
         // Put the file descriptor in non-blocking mode.
-        set_nonblocking(fd)?;
+        set_nonblocking(io.as_fd())?;
 
+        Self::new_nonblocking(io)
+    }
+
+    fn new_nonblocking(io: T) -> io::Result<Async<T>> {
         // SAFETY: It is impossible to drop the I/O source while it is registered through
         // this type.
-        let registration = unsafe { Registration::new(fd) };
+        let registration = unsafe { Registration::new(io.as_fd()) };
 
         Ok(Async {
             source: Reactor::get().insert_io(registration)?,
@@ -731,16 +733,18 @@ impl<T: AsSocket> Async<T> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn new(io: T) -> io::Result<Async<T>> {
-        let borrowed = io.as_socket();
-
         // Put the socket in non-blocking mode.
-        set_nonblocking(borrowed)?;
+        set_nonblocking(io.as_socket())?;
 
+        Self::new_nonblocking(io)
+    }
+
+    fn new_nonblocking(io: T) -> io::Result<Async<T>> {
         // Create the registration.
         //
         // SAFETY: It is impossible to drop the I/O source while it is registered through
         // this type.
-        let registration = unsafe { Registration::new(borrowed) };
+        let registration = unsafe { Registration::new(io.as_socket()) };
 
         Ok(Async {
             source: Reactor::get().insert_io(registration)?,
@@ -1479,7 +1483,8 @@ impl Async<TcpStream> {
 
         // Begin async connect.
         let socket = connect(sock_addr, domain, Some(rn::ipproto::TCP))?;
-        let stream = Async::new(TcpStream::from(socket))?;
+        // Use new_nonblocking because connect already sets socket to non-blocking mode.
+        let stream = Async::new_nonblocking(TcpStream::from(socket))?;
 
         // The stream becomes writable when connected.
         stream.writable().await?;
@@ -1812,7 +1817,8 @@ impl Async<UnixStream> {
             rn::AddressFamily::UNIX,
             None,
         )?;
-        let stream = Async::new(UnixStream::from(socket))?;
+        // Use new_nonblocking because connect already sets socket to non-blocking mode.
+        let stream = Async::new_nonblocking(UnixStream::from(socket))?;
 
         // The stream becomes writable when connected.
         stream.writable().await?;
