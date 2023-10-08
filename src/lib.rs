@@ -636,8 +636,8 @@ impl<T: AsFd> Async<T> {
     /// This method will put the handle in non-blocking mode and register it in
     /// [epoll]/[kqueue]/[event ports]/[IOCP].
     ///
-    /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
-    /// `AsRawSocket`.
+    /// On Unix systems, the handle must implement `AsFd`, while on Windows it must implement
+    /// `AsSocket`.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -662,7 +662,24 @@ impl<T: AsFd> Async<T> {
         Self::new_nonblocking(io)
     }
 
-    fn new_nonblocking(io: T) -> io::Result<Async<T>> {
+    /// Creates an async I/O handle without setting it to non-blocking mode.
+    ///
+    /// This method will register the handle in [epoll]/[kqueue]/[event ports]/[IOCP].
+    ///
+    /// On Unix systems, the handle must implement `AsFd`, while on Windows it must implement
+    /// `AsSocket`.
+    ///
+    /// [epoll]: https://en.wikipedia.org/wiki/Epoll
+    /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+    /// [event ports]: https://illumos.org/man/port_create
+    /// [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
+    ///
+    /// # Caveats
+    ///
+    /// The caller should ensure that the handle is set to non-blocking mode or that it is okay if
+    /// it is not set. If not set to non-blocking mode, I/O operations may block the current thread
+    /// and cause a deadlock in an asynchronous context.
+    pub fn new_nonblocking(io: T) -> io::Result<Async<T>> {
         // SAFETY: It is impossible to drop the I/O source while it is registered through
         // this type.
         let registration = unsafe { Registration::new(io.as_fd()) };
@@ -713,8 +730,8 @@ impl<T: AsSocket> Async<T> {
     /// This method will put the handle in non-blocking mode and register it in
     /// [epoll]/[kqueue]/[event ports]/[IOCP].
     ///
-    /// On Unix systems, the handle must implement `AsRawFd`, while on Windows it must implement
-    /// `AsRawSocket`.
+    /// On Unix systems, the handle must implement `AsFd`, while on Windows it must implement
+    /// `AsSocket`.
     ///
     /// [epoll]: https://en.wikipedia.org/wiki/Epoll
     /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
@@ -739,7 +756,24 @@ impl<T: AsSocket> Async<T> {
         Self::new_nonblocking(io)
     }
 
-    fn new_nonblocking(io: T) -> io::Result<Async<T>> {
+    /// Creates an async I/O handle without setting it to non-blocking mode.
+    ///
+    /// This method will register the handle in [epoll]/[kqueue]/[event ports]/[IOCP].
+    ///
+    /// On Unix systems, the handle must implement `AsFd`, while on Windows it must implement
+    /// `AsSocket`.
+    ///
+    /// [epoll]: https://en.wikipedia.org/wiki/Epoll
+    /// [kqueue]: https://en.wikipedia.org/wiki/Kqueue
+    /// [event ports]: https://illumos.org/man/port_create
+    /// [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
+    ///
+    /// # Caveats
+    ///
+    /// The caller should ensure that the handle is set to non-blocking mode or that it is okay if
+    /// it is not set. If not set to non-blocking mode, I/O operations may block the current thread
+    /// and cause a deadlock in an asynchronous context.
+    pub fn new_nonblocking(io: T) -> io::Result<Async<T>> {
         // Create the registration.
         //
         // SAFETY: It is impossible to drop the I/O source while it is registered through
