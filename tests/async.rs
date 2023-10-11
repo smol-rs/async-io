@@ -365,10 +365,7 @@ fn duplicate_socket_insert() -> io::Result<()> {
         let addr = listener.as_ref().local_addr()?;
 
         // attempt to register twice
-        assert!(
-            Async::<TcpListener>::bind(addr).is_err(),
-            "fails upon second insert"
-        );
+        assert!(Async::new(&listener).is_err(), "fails upon second insert");
 
         // Read and Write to confirm socket did not deregister on duplication attempt
         // Write to stream_w
