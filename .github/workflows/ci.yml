@@ -65,12 +65,6 @@ jobs:
         # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
         run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
       - run: rustup target add ${{ matrix.target }}
-      # https://github.com/rust-lang/rust/issues/49078
-      - name: Fix windows-gnu rust-mingw
-        run : |
-          for i in crt2.o dllcrt2.o libmingwex.a libmsvcrt.a ; do
-            cp -f "/C/ProgramData/Chocolatey/lib/mingw/tools/install/mingw64/x86_64-w64-mingw32/lib/$i" "`rustc --print sysroot`/lib/rustlib/x86_64-pc-windows-gnu/lib"
-          done
       - run: cargo build --target ${{ matrix.target }} --all --all-features --all-targets
       - run: cargo test --target ${{ matrix.target }}
 
