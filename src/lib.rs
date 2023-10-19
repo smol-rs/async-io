@@ -1244,6 +1244,9 @@ unsafe impl IoSafe for std::io::StderrLock<'_> {}
 unsafe impl IoSafe for std::io::StdinLock<'_> {}
 unsafe impl IoSafe for std::io::StdoutLock<'_> {}
 unsafe impl IoSafe for std::net::TcpStream {}
+unsafe impl IoSafe for std::process::ChildStdin {}
+unsafe impl IoSafe for std::process::ChildStdout {}
+unsafe impl IoSafe for std::process::ChildStderr {}
 
 #[cfg(unix)]
 unsafe impl IoSafe for std::os::unix::net::UnixStream {}
