@@ -1,3 +1,7 @@
+# Version 2.1.0
+
+- Implement `IoSafe` for `std::process::{ChildStdin, ChildStdout, ChildStderr}`. (#162)
+
 # Version 2.0.0
 
 - **Breaking:** `Async::new()` now takes types that implement `AsFd`/`AsSocket` instead of `AsRawFd`/`AsRawSocket`, in order to implement I/O safety. (#142)
