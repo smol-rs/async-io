@@ -39,7 +39,7 @@ waker-fn = "1.1.0"
 windows-sys = { version = "0.48.0", features = ["Win32_Foundation"] }
 
 [dev-dependencies]
-async-channel = "1"
+async-channel = "2"
 async-net = "1"
 blocking = "1"
 criterion = { version = "0.4", default-features = false, features = ["cargo_bench_support"] }
