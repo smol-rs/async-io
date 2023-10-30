@@ -27,7 +27,7 @@ async-lock = "2.6"
 cfg-if = "1"
 concurrent-queue = "2.2.0"
 futures-io = { version = "0.3.28", default-features = false, features = ["std"] }
-futures-lite = { version = "1.11.0", default-features = false }
+futures-lite = { version = "2.0.0", default-features = false }
 parking = "2.0.0"
 polling = "3.0.0"
 rustix = { version = "0.38.2", default-features = false, features = ["fs", "net", "std"] }
