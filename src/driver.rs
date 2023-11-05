@@ -130,7 +130,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         let io_blocked = Arc::new(AtomicBool::new(false));
 
         // Prepare the waker.
-        let waker = BlockOnWaker::new(io_blocked.clone(), u);
+        let waker = BlockOnWaker::create(io_blocked.clone(), u);
 
         (p, waker, io_blocked)
     }
@@ -141,7 +141,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
     }
 
     impl BlockOnWaker {
-        fn new(io_blocked: Arc<AtomicBool>, unparker: parking::Unparker) -> Waker {
+        fn create(io_blocked: Arc<AtomicBool>, unparker: parking::Unparker) -> Waker {
             Waker::from(Arc::new(BlockOnWaker {
                 io_blocked,
                 unparker,
