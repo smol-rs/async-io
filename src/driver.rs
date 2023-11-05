@@ -10,7 +10,6 @@ use std::time::{Duration, Instant};
 use async_lock::OnceCell;
 use futures_lite::pin;
 use parking::Parker;
-use waker_fn::waker_fn;
 
 use crate::reactor::Reactor;
 
@@ -131,19 +130,38 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         let io_blocked = Arc::new(AtomicBool::new(false));
 
         // Prepare the waker.
-        let waker = waker_fn({
-            let io_blocked = io_blocked.clone();
-            move || {
-                if u.unpark() {
-                    // Check if waking from another thread and if currently blocked on I/O.
-                    if !IO_POLLING.with(Cell::get) && io_blocked.load(Ordering::SeqCst) {
-                        Reactor::get().notify();
-                    }
-                }
-            }
-        });
+        let waker = BlockOnWaker::new(io_blocked.clone(), u);
 
         (p, waker, io_blocked)
+    }
+
+    struct BlockOnWaker {
+        io_blocked: Arc<AtomicBool>,
+        unparker: parking::Unparker,
+    }
+
+    impl BlockOnWaker {
+        fn new(io_blocked: Arc<AtomicBool>, unparker: parking::Unparker) -> Waker {
+            Waker::from(Arc::new(BlockOnWaker {
+                io_blocked,
+                unparker,
+            }))
+        }
+    }
+
+    impl std::task::Wake for BlockOnWaker {
+        fn wake_by_ref(self: &Arc<Self>) {
+            if self.unparker.unpark() {
+                // Check if waking from another thread and if currently blocked on I/O.
+                if !IO_POLLING.with(Cell::get) && self.io_blocked.load(Ordering::SeqCst) {
+                    Reactor::get().notify();
+                }
+            }
+        }
+
+        fn wake(self: Arc<Self>) {
+            self.wake_by_ref()
+        }
     }
 
     thread_local! {
