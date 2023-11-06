@@ -1,3 +1,7 @@
+# Version 2.2.0
+
+- Bump `async-lock` and `futures-lite` to their latest version. (#170)
+
 # Version 2.1.0
 
 - Implement `IoSafe` for `std::process::{ChildStdin, ChildStdout, ChildStderr}`. (#162)
