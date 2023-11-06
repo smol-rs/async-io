@@ -135,6 +135,14 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         (p, waker, io_blocked)
     }
 
+    thread_local! {
+        // Cached parker and waker for efficiency.
+        static CACHE: RefCell<(Parker, Waker, Arc<AtomicBool>)> = RefCell::new(parker_and_waker());
+
+        // Indicates that the current thread is polling I/O, but not necessarily blocked on it.
+        static IO_POLLING: Cell<bool> = Cell::new(false);
+    }
+
     struct BlockOnWaker {
         io_blocked: Arc<AtomicBool>,
         unparker: parking::Unparker,
@@ -164,13 +172,6 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         }
     }
 
-    thread_local! {
-        // Cached parker and waker for efficiency.
-        static CACHE: RefCell<(Parker, Waker, Arc<AtomicBool>)> = RefCell::new(parker_and_waker());
-
-        // Indicates that the current thread is polling I/O, but not necessarily blocked on it.
-        static IO_POLLING: Cell<bool> = Cell::new(false);
-    }
 
     CACHE.with(|cache| {
         // Try grabbing the cached parker and waker.
