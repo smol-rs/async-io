@@ -172,7 +172,6 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         }
     }
 
-
     CACHE.with(|cache| {
         // Try grabbing the cached parker and waker.
         let tmp_cached;
