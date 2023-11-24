@@ -1,3 +1,8 @@
+# Version 2.2.1
+
+- Remove dependency on `waker-fn`. (#165)
+- Update `windows-sys` to v0.52.0. (#173)
+
 # Version 2.2.0
 
 - Bump `async-lock` and `futures-lite` to their latest version. (#170)
