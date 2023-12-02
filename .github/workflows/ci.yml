@@ -39,6 +39,8 @@ jobs:
         # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
         run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
       - run: cargo build --all --all-features --all-targets
+      - run: sudo apt update && sudo apt install -y seatd && (seatd &) && ls /var/run
+        if: startsWith(matrix.os, 'ubuntu')
       - name: Run cargo check (without dev-dependencies to catch missing feature flags)
         if: startsWith(matrix.rust, 'nightly')
         run: cargo check -Z features=dev_dep
@@ -49,7 +51,7 @@ jobs:
 #      - name: Check selected Tier 3 targets
 #        if: startsWith(matrix.rust, 'nightly') && matrix.os == 'ubuntu-latest'
 #        run: cargo check -Z build-std --target=riscv32imc-esp-espidf
-      - run: cargo test
+      - run: (seatd &) && cargo test
 
   # Copied from: https://github.com/rust-lang/stacker/pull/19/files
   windows_gnu:

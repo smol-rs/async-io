@@ -33,6 +33,17 @@ fn spawn<T: Send + 'static>(
     Box::pin(async move { r.recv().await.unwrap() })
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn socket() {
+    future::block_on(async {
+        let _sock =
+            async_io::Async::<std::os::unix::net::UnixStream>::connect("/var/run/seatd.sock")
+                .await
+                .unwrap();
+    });
+}
+
 #[test]
 fn tcp_connect() -> io::Result<()> {
     future::block_on(async {
