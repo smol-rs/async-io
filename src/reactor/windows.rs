@@ -5,8 +5,7 @@ use polling::{Event, PollMode, Poller};
 use std::fmt;
 use std::io::Result;
 use std::os::windows::io::{
-    AsHandle, AsRawHandle, AsRawSocket, AsSocket, BorrowedHandle, BorrowedSocket, RawHandle,
-    RawSocket,
+    AsRawHandle, AsRawSocket, BorrowedHandle, BorrowedSocket, RawHandle, RawSocket,
 };
 
 /// The raw registration into the reactor.
@@ -47,8 +46,8 @@ impl Registration {
     /// # Safety
     ///
     /// The provided file descriptor must be valid and not be closed while this object is alive.
-    pub(crate) unsafe fn new(f: impl AsSocket) -> Self {
-        Self::Socket(f.as_socket().as_raw_socket())
+    pub(crate) unsafe fn new(f: BorrowedSocket<'_>) -> Self {
+        Self::Socket(f.as_raw_socket())
     }
 
     /// Create a new [`Registration`] around a waitable handle.
@@ -56,8 +55,8 @@ impl Registration {
     /// # Safety
     ///
     /// The provided handle must be valid and not be closed while this object is alive.
-    pub(crate) unsafe fn new_waitable(f: impl AsHandle) -> Self {
-        Self::Handle(f.as_handle().as_raw_handle())
+    pub(crate) unsafe fn new_waitable(f: BorrowedHandle<'_>) -> Self {
+        Self::Handle(f.as_raw_handle())
     }
 
     /// Registers the object into the reactor.

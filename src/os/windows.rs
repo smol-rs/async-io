@@ -69,7 +69,8 @@ impl<T: AsHandle> Waitable<T> {
     /// ```
     pub fn new(handle: T) -> Result<Self> {
         Ok(Self(Async {
-            source: Reactor::get().insert_io(unsafe { Registration::new_waitable(&handle) })?,
+            source: Reactor::get()
+                .insert_io(unsafe { Registration::new_waitable(handle.as_handle()) })?,
             io: Some(handle),
         }))
     }
