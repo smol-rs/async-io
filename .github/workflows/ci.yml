@@ -51,8 +51,7 @@ jobs:
 #      - name: Check selected Tier 3 targets
 #        if: startsWith(matrix.rust, 'nightly') && matrix.os == 'ubuntu-latest'
 #        run: cargo check -Z build-std --target=riscv32imc-esp-espidf
-      - run: whereis cargo || true
-      - run: sudo /home/runner/.cargo/bin/cargo test
+      - run: sudo /home/runner/.cargo/bin/cargo +stable test
 
   # Copied from: https://github.com/rust-lang/stacker/pull/19/files
   windows_gnu:
