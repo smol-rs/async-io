@@ -1847,14 +1847,14 @@ impl Async<UnixStream> {
     /// # std::io::Result::Ok(()) });
     /// ```
     pub async fn connect<P: AsRef<Path>>(path: P) -> io::Result<Async<UnixStream>> {
-        use std::os::unix::ffi::OsStrExt;
-
         // SocketAddrUnix::new() will throw EINVAL when a path with a zero in it is passed in.
         // However, some users expect to be able to pass in paths to abstract sockets, which
         // triggers this error as it has a zero in it. Therefore, if a path starts with a zero,
         // make it an abstract socket.
         #[cfg(any(target_os = "linux", target_os = "android"))]
         let address = {
+            use std::os::unix::ffi::OsStrExt;
+
             let path = path.as_ref().as_os_str();
             match path.as_bytes().first() {
                 Some(0) => rn::SocketAddrUnix::new_abstract_name(path.as_bytes())?,
