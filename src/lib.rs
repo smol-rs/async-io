@@ -1853,11 +1853,18 @@ impl Async<UnixStream> {
         // However, some users expect to be able to pass in paths to abstract sockets, which
         // triggers this error as it has a zero in it. Therefore, if a path starts with a zero,
         // make it an abstract socket.
-        let path = path.as_ref().as_os_str();
-        let address = match path.as_bytes().first() {
-            Some(0) => rn::SocketAddrUnix::new_abstract_name(path.as_bytes())?,
-            _ => rn::SocketAddrUnix::new(path)?,
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let address = {
+            let path = path.as_ref().as_os_str();
+            match path.as_bytes().first() {
+                Some(0) => rn::SocketAddrUnix::new_abstract_name(path.as_bytes())?,
+                _ => rn::SocketAddrUnix::new(path)?,
+            }
         };
+
+        // Only Linux and Android support abstract sockets.
+        #[cfg(not(any(target_os = "linux", target_os = "android")))]
+        let address = rn::SocketAddrUnix::new(path.as_ref())?;
 
         // Begin async connect.
         let socket = connect(address.into(), rn::AddressFamily::UNIX, None)?;
