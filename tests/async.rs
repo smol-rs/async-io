@@ -383,3 +383,59 @@ fn duplicate_socket_insert() -> io::Result<()> {
         Ok(())
     })
 }
+
+#[cfg(any(target_os = "linux", target_os = "android"))]
+#[test]
+fn abstract_socket() -> io::Result<()> {
+    use std::ffi::OsStr;
+    #[cfg(target_os = "android")]
+    use std::os::android::net::SocketAddrExt;
+    #[cfg(target_os = "linux")]
+    use std::os::linux::net::SocketAddrExt;
+    use std::os::unix::ffi::OsStrExt;
+    use std::os::unix::net::{SocketAddr, UnixListener, UnixStream};
+
+    future::block_on(async {
+        // Bind a listener to a socket.
+        let path = OsStr::from_bytes(b"\0smolabstract");
+        let addr = SocketAddr::from_abstract_name(b"smolabstract")?;
+        let listener = Async::new(UnixListener::bind_addr(&addr)?)?;
+
+        // Future that connects to the listener.
+        let connector = async {
+            // Connect to the socket.
+            let mut stream = Async::<UnixStream>::connect(path).await?;
+
+            // Write some bytes to the stream.
+            stream.write_all(LOREM_IPSUM).await?;
+
+            // Read some bytes from the stream.
+            let mut buf = vec![0; LOREM_IPSUM.len()];
+            stream.read_exact(&mut buf).await?;
+            assert_eq!(buf.as_slice(), LOREM_IPSUM);
+
+            io::Result::Ok(())
+        };
+
+        // Future that drives the listener.
+        let driver = async {
+            // Wait for a new connection.
+            let (mut stream, _) = listener.accept().await?;
+
+            // Read some bytes from the stream.
+            let mut buf = vec![0; LOREM_IPSUM.len()];
+            stream.read_exact(&mut buf).await?;
+            assert_eq!(buf.as_slice(), LOREM_IPSUM);
+
+            // Write some bytes to the stream.
+            stream.write_all(LOREM_IPSUM).await?;
+
+            io::Result::Ok(())
+        };
+
+        // Run both in parallel.
+        future::try_zip(connector, driver).await?;
+
+        Ok(())
+    })
+}
