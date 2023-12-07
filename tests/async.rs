@@ -388,6 +388,9 @@ fn duplicate_socket_insert() -> io::Result<()> {
 #[test]
 fn abstract_socket() -> io::Result<()> {
     use std::ffi::OsStr;
+    #[cfg(target_os = "android")]
+    use std::os::android::net::SocketAddrExt;
+    #[cfg(target_os = "linux")]
     use std::os::linux::net::SocketAddrExt;
     use std::os::unix::ffi::OsStrExt;
     use std::os::unix::net::{SocketAddr, UnixListener, UnixStream};
