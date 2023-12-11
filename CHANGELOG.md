@@ -1,3 +1,7 @@
+# Version 2.2.2
+
+- Fix an `EINVAL` error that would occur when abstract sockets are used. (#176)
+
 # Version 2.2.1
 
 - Remove dependency on `waker-fn`. (#165)
