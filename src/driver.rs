@@ -140,7 +140,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
         static CACHE: RefCell<(Parker, Waker, Arc<AtomicBool>)> = RefCell::new(parker_and_waker());
 
         // Indicates that the current thread is polling I/O, but not necessarily blocked on it.
-        static IO_POLLING: Cell<bool> = Cell::new(false);
+        static IO_POLLING: Cell<bool> = const { Cell::new(false) };
     }
 
     struct BlockOnWaker {
