@@ -1,3 +1,8 @@
+# Version 2.3.0
+
+- Add `Waitable`, which allows waiting for waitable handles on
+  Windows. (#152)
+
 # Version 2.2.2
 
 - Fix an `EINVAL` error that would occur when abstract sockets are used. (#176)
