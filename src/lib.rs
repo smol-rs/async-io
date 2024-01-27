@@ -2069,6 +2069,8 @@ fn connect(
     #[cfg(windows)]
     use rustix::fd::AsFd;
 
+    setup_networking();
+
     #[cfg(any(
         target_os = "android",
         target_os = "dragonfly",
@@ -2166,6 +2168,20 @@ fn connect(
         Err(err) => return Err(err.into()),
     }
     Ok(socket)
+}
+
+#[inline]
+fn setup_networking() {
+    #[cfg(windows)]
+    {
+        // On Windows, we need to call WSAStartup before calling any networking code.
+        // Make sure to call it at least once.
+        static INIT: std::sync::Once = std::sync::Once::new();
+
+        INIT.call_once(|| {
+            let _ = rustix::net::wsa_startup();
+        });
+    }
 }
 
 #[inline]
