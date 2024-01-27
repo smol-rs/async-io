@@ -12,6 +12,12 @@ fn networking_initialized() {
             return;
         }
     };
+
+    // Make sure we can access the host normally.
+    if TcpStream::connect(address).is_err() {
+        return;
+    }
+
     async_io::block_on(async move {
         let _ = Async::<TcpStream>::connect(address).await.unwrap();
     });
