@@ -5,10 +5,13 @@ use std::net::{TcpStream, ToSocketAddrs};
 
 #[test]
 fn networking_initialized() {
-    let address = ToSocketAddrs::to_socket_addrs(&("google.com", 80))
-        .unwrap()
-        .next()
-        .unwrap();
+    let address = match ToSocketAddrs::to_socket_addrs(&("google.com", 80)) {
+        Ok(mut addrs) => addrs.next().unwrap(),
+        Err(err) => {
+            eprintln!("Got error {err} when looking up google.com, exiting test early.");
+            return;
+        }
+    };
     async_io::block_on(async move {
         let _ = Async::<TcpStream>::connect(address).await.unwrap();
     });
