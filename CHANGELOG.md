@@ -1,3 +1,7 @@
+# Version 2.3.1
+
+- On Windows, call `WSAStartup` before any raw socket functions. (#183)
+
 # Version 2.3.0
 
 - Add `Waitable`, which allows waiting for waitable handles on
