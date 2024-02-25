@@ -1,4 +1,3 @@
-use std::future::Future;
 use std::io;
 use std::net::{Shutdown, TcpListener, TcpStream, UdpSocket};
 #[cfg(unix)]
