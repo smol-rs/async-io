@@ -3,7 +3,6 @@
 use crate::reactor::{Reactor, Readable, Registration};
 use crate::Async;
 
-use std::convert::TryFrom;
 use std::future::Future;
 use std::io::{self, Result};
 use std::os::windows::io::{AsHandle, AsRawHandle, BorrowedHandle, OwnedHandle, RawHandle};
