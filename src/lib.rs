@@ -2100,6 +2100,7 @@ fn connect(
     )))]
     let socket = {
         #[cfg(not(any(
+            target_os = "aix",
             target_os = "macos",
             target_os = "ios",
             target_os = "tvos",
@@ -2109,6 +2110,7 @@ fn connect(
         )))]
         let flags = rn::SocketFlags::CLOEXEC;
         #[cfg(any(
+            target_os = "aix",
             target_os = "macos",
             target_os = "ios",
             target_os = "tvos",
