@@ -1,3 +1,7 @@
+# Version 2.3.2
+
+- Fix usage of the wrong socket flags on AIX. (#187)
+
 # Version 2.3.1
 
 - On Windows, call `WSAStartup` before any raw socket functions. (#183)
