@@ -1,6 +1,5 @@
 //! Functionality that is only available for `unix` platforms.
 
-#[cfg(not(async_io_no_io_safety))]
 use std::os::unix::io::BorrowedFd;
 
 /// Get a file descriptor that can be used to wait for readiness in an external runtime.
@@ -41,7 +40,6 @@ use std::os::unix::io::BorrowedFd;
 /// #     pub fn register(_: BorrowedFd<'_>) {}
 /// # }
 /// ```
-#[cfg(not(async_io_no_io_safety))]
 pub fn reactor_fd() -> Option<BorrowedFd<'static>> {
     cfg_if::cfg_if! {
         if #[cfg(all(

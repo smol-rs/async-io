@@ -14,6 +14,9 @@ keywords = ["mio", "epoll", "kqueue", "iocp"]
 categories = ["asynchronous", "network-programming", "os"]
 exclude = ["/.*"]
 
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(polling_test_poll_backend)'] }
+
 [[bench]]
 name = "io"
 harness = false
