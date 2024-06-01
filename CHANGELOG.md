@@ -1,3 +1,7 @@
+# Version 2.3.3
+
+- Fix nightly clippy warnings. (#191)
+
 # Version 2.3.2
 
 - Fix usage of the wrong socket flags on AIX. (#187)
