@@ -461,7 +461,9 @@ impl Source {
             panic::catch_unwind(|| w.wake()).ok();
         }
         state[dir].waker = Some(cx.waker().clone());
-        state[dir].ticks = Some((Reactor::get().ticker(), state[dir].tick));
+        if state[dir].ticks.is_none() {
+            state[dir].ticks = Some((Reactor::get().ticker(), state[dir].tick));
+        }
 
         // Update interest in this I/O handle.
         if was_empty {
