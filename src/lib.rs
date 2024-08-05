@@ -2145,7 +2145,9 @@ fn connect(
         target_os = "ios",
         target_os = "tvos",
         target_os = "watchos",
-        target_os = "freebsd"
+        target_os = "freebsd",
+        target_os = "netbsd",
+        target_os = "dragonfly",
     ))]
     rn::sockopt::set_socket_nosigpipe(&socket, true)?;
 
