@@ -1,3 +1,8 @@
+# Version 2.3.4
+
+- Update `windows-sys` to v0.59. (#195)
+- On NetBSD/DragonflyBSD, set `nosigpipe` on sockets. (#196)
+
 # Version 2.3.3
 
 - Fix nightly clippy warnings. (#191)
