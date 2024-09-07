@@ -1639,7 +1639,7 @@ impl Async<UdpSocket> {
 
     /// Sends data to the specified address.
     ///
-    /// Returns the number of bytes writen.
+    /// Returns the number of bytes written.
     ///
     /// # Examples
     ///
