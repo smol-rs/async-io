@@ -1256,7 +1256,7 @@ unsafe impl<T: IoSafe + Write> IoSafe for std::io::BufWriter<T> {}
 unsafe impl<T: IoSafe + Write> IoSafe for std::io::LineWriter<T> {}
 unsafe impl<T: IoSafe + ?Sized> IoSafe for &mut T {}
 unsafe impl<T: IoSafe + ?Sized> IoSafe for Box<T> {}
-unsafe impl<T: Clone + IoSafe + ?Sized> IoSafe for std::borrow::Cow<'_, T> {}
+unsafe impl<T: Clone + IoSafe> IoSafe for std::borrow::Cow<'_, T> {}
 
 impl<T: IoSafe + Read> AsyncRead for Async<T> {
     fn poll_read(
