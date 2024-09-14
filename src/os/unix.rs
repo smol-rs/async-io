@@ -15,7 +15,7 @@ use std::os::unix::io::BorrowedFd;
 /// associated with `poll()`, this function will return `None`.
 ///
 /// There is presently no way to stop the "`async-io`" thread from being launched, so the reactor
-/// will still be continiously polled on that thread. This fact should be kept in mind by anyone
+/// will still be continuously polled on that thread. This fact should be kept in mind by anyone
 /// looking to integrate `async-io` into another runtime using this function.
 ///
 /// It is possible to use this function to call raw system calls on the underlying event source.
