@@ -1256,7 +1256,7 @@ unsafe impl<T: IoSafe + Write> IoSafe for std::io::BufWriter<T> {}
 unsafe impl<T: IoSafe + Write> IoSafe for std::io::LineWriter<T> {}
 unsafe impl<T: IoSafe + ?Sized> IoSafe for &mut T {}
 unsafe impl<T: IoSafe + ?Sized> IoSafe for Box<T> {}
-unsafe impl<T: Clone + IoSafe + ?Sized> IoSafe for std::borrow::Cow<'_, T> {}
+unsafe impl<T: Clone + IoSafe> IoSafe for std::borrow::Cow<'_, T> {}
 
 impl<T: IoSafe + Read> AsyncRead for Async<T> {
     fn poll_read(
@@ -2101,20 +2101,14 @@ fn connect(
     let socket = {
         #[cfg(not(any(
             target_os = "aix",
-            target_os = "macos",
-            target_os = "ios",
-            target_os = "tvos",
-            target_os = "watchos",
+            target_vendor = "apple",
             target_os = "espidf",
             windows,
         )))]
         let flags = rn::SocketFlags::CLOEXEC;
         #[cfg(any(
             target_os = "aix",
-            target_os = "macos",
-            target_os = "ios",
-            target_os = "tvos",
-            target_os = "watchos",
+            target_vendor = "apple",
             target_os = "espidf",
             windows,
         ))]
@@ -2124,13 +2118,7 @@ fn connect(
         let socket = rn::socket_with(domain, rn::SocketType::STREAM, flags, protocol)?;
 
         // Set cloexec if necessary.
-        #[cfg(any(
-            target_os = "aix",
-            target_os = "macos",
-            target_os = "ios",
-            target_os = "tvos",
-            target_os = "watchos",
-        ))]
+        #[cfg(any(target_os = "aix", target_vendor = "apple"))]
         rio::fcntl_setfd(&socket, rio::fcntl_getfd(&socket)? | rio::FdFlags::CLOEXEC)?;
 
         // Set non-blocking mode.
@@ -2141,10 +2129,7 @@ fn connect(
 
     // Set nosigpipe if necessary.
     #[cfg(any(
-        target_os = "macos",
-        target_os = "ios",
-        target_os = "tvos",
-        target_os = "watchos",
+        target_vendor = "apple",
         target_os = "freebsd",
         target_os = "netbsd",
         target_os = "dragonfly",
