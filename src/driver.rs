@@ -1,13 +1,12 @@
 use std::cell::{Cell, RefCell};
 use std::future::Future;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 use std::task::Waker;
 use std::task::{Context, Poll};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use async_lock::OnceCell;
 use futures_lite::pin;
 use parking::Parker;
 
@@ -18,9 +17,9 @@ static BLOCK_ON_COUNT: AtomicUsize = AtomicUsize::new(0);
 
 /// Unparker for the "async-io" thread.
 fn unparker() -> &'static parking::Unparker {
-    static UNPARKER: OnceCell<parking::Unparker> = OnceCell::new();
+    static UNPARKER: OnceLock<parking::Unparker> = OnceLock::new();
 
-    UNPARKER.get_or_init_blocking(|| {
+    UNPARKER.get_or_init(|| {
         let (parker, unparker) = parking::pair();
 
         // Spawn a helper thread driving the reactor.

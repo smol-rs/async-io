@@ -8,11 +8,11 @@ use std::mem;
 use std::panic;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::OnceLock;
 use std::sync::{Arc, Mutex, MutexGuard};
 use std::task::{Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
-use async_lock::OnceCell;
 use concurrent_queue::ConcurrentQueue;
 use futures_lite::ready;
 use polling::{Event, Events, Poller};
@@ -93,9 +93,9 @@ pub(crate) struct Reactor {
 impl Reactor {
     /// Returns a reference to the reactor.
     pub(crate) fn get() -> &'static Reactor {
-        static REACTOR: OnceCell<Reactor> = OnceCell::new();
+        static REACTOR: OnceLock<Reactor> = OnceLock::new();
 
-        REACTOR.get_or_init_blocking(|| {
+        REACTOR.get_or_init(|| {
             crate::driver::init();
             Reactor {
                 poller: Poller::new().expect("cannot initialize I/O event notification"),
