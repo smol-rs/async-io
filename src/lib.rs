@@ -318,7 +318,7 @@ impl Timer {
         self.when.is_some()
     }
 
-    /// Sets the timer to emit an en event once after the given duration of time.
+    /// Sets the timer to emit an event once after the given duration of time.
     ///
     /// Note that resetting a timer is different from creating a new timer because
     /// [`set_after()`][`Timer::set_after()`] does not remove the waker associated with the task
