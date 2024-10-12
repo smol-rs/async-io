@@ -41,13 +41,14 @@ impl<T: Queueable> Filter<T> {
     ///
     /// ```no_run
     /// use std::process::Command;
+    /// use std::num::NonZeroI32;
     /// use async_io::os::kqueue::{Exit, Filter};
     ///
     /// // Create a new process to wait for.
     /// let mut child = Command::new("sleep").arg("5").spawn().unwrap();
     ///
     /// // Wrap the process in an `Async` object that waits for it to exit.
-    /// let process = Filter::new(Exit::new(child)).unwrap();
+    /// let mut process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
     ///
     /// // Wait for the process to exit.
     /// # async_io::block_on(async {
@@ -97,10 +98,11 @@ impl<T> Filter<T> {
     ///
     /// ```
     /// use async_io::os::kqueue::{Exit, Filter};
+    /// use std::num::NonZeroI32;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    /// let process = Filter::new(Exit::new(child)).unwrap();
+    /// let mut process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
     /// let inner = process.get_ref();
     /// # });
     /// ```
@@ -117,10 +119,11 @@ impl<T> Filter<T> {
     ///
     /// ```
     /// use async_io::os::kqueue::{Exit, Filter};
+    /// use std::num::NonZeroI32;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    /// let mut process = Filter::new(Exit::new(child)).unwrap();
+    /// let mut process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
     /// let inner = process.get_mut();
     /// # });
     /// ```
@@ -134,10 +137,11 @@ impl<T> Filter<T> {
     ///
     /// ```
     /// use async_io::os::kqueue::{Exit, Filter};
+    /// use std::num::NonZeroI32;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    /// let process = Filter::new(Exit::new(child)).unwrap();
+    /// let mut process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
     /// let inner = process.into_inner().unwrap();
     /// # });
     /// ```
@@ -153,12 +157,13 @@ impl<T> Filter<T> {
     /// # Examples
     ///
     /// ```no_run
+    /// use std::num::NonZeroI32;
     /// use std::process::Command;
     /// use async_io::os::kqueue::{Exit, Filter};
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = Command::new("sleep").arg("5").spawn()?;
-    /// let process = Filter::new(Exit::new(child))?;
+    /// let process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
     ///
     /// // Wait for the process to exit.
     /// process.ready().await?;
@@ -182,13 +187,14 @@ impl<T> Filter<T> {
     /// # Examples
     ///
     /// ```no_run
+    /// use std::num::NonZeroI32;
     /// use std::process::Command;
     /// use async_io::os::kqueue::{Exit, Filter};
     /// use futures_lite::future;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = Command::new("sleep").arg("5").spawn()?;
-    /// let process = Filter::new(Exit::new(child))?;
+    /// let process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
     ///
     /// // Wait for the process to exit.
     /// future::poll_fn(|cx| process.poll_ready(cx)).await?;
