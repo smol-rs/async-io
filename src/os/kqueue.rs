@@ -7,9 +7,9 @@ use crate::Async;
 
 use std::future::Future;
 use std::io::{Error, Result};
+use std::num::NonZeroI32;
 use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::pin::Pin;
-use std::process::Child;
 use std::task::{Context, Poll};
 
 /// A wrapper around a queueable object that waits until it is ready.
@@ -233,23 +233,23 @@ impl QueueableSealed for Signal {
 }
 impl Queueable for Signal {}
 
-/// Wait for a child process to exit.
+/// Wait for a process to exit.
 ///
 /// When registered into [`Async`](crate::Async) via [`with_filter`](AsyncKqueueExt::with_filter),
 /// it will return a [`readable`](crate::Async::readable) event when the child process exits.
 #[derive(Debug)]
-pub struct Exit(Option<Child>);
+pub struct Exit(NonZeroI32);
 
 impl Exit {
     /// Create a new `Exit` object.
-    pub fn new(child: Child) -> Self {
-        Self(Some(child))
+    pub fn new(pid: NonZeroI32) -> Self {
+        Self(pid)
     }
 }
 
 impl QueueableSealed for Exit {
     fn registration(&mut self) -> Registration {
-        Registration::Process(self.0.take().expect("Cannot reregister child"))
+        Registration::Process(self.0)
     }
 }
 impl Queueable for Exit {}
