@@ -10,6 +10,7 @@ use std::io::{Error, Result};
 use std::num::NonZeroI32;
 use std::os::unix::io::{AsFd, AsRawFd, BorrowedFd, OwnedFd, RawFd};
 use std::pin::Pin;
+use std::process::Child;
 use std::task::{Context, Poll};
 
 /// A wrapper around a queueable object that waits until it is ready.
@@ -41,14 +42,13 @@ impl<T: Queueable> Filter<T> {
     ///
     /// ```no_run
     /// use std::process::Command;
-    /// use std::num::NonZeroI32;
     /// use async_io::os::kqueue::{Exit, Filter};
     ///
     /// // Create a new process to wait for.
     /// let mut child = Command::new("sleep").arg("5").spawn().unwrap();
     ///
     /// // Wrap the process in an `Async` object that waits for it to exit.
-    /// let mut process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
+    /// let process = Filter::new(Exit::new(child)).unwrap();
     ///
     /// // Wait for the process to exit.
     /// # async_io::block_on(async {
@@ -98,11 +98,10 @@ impl<T> Filter<T> {
     ///
     /// ```
     /// use async_io::os::kqueue::{Exit, Filter};
-    /// use std::num::NonZeroI32;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    /// let mut process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
+    /// let process = Filter::new(Exit::new(child)).unwrap();
     /// let inner = process.get_ref();
     /// # });
     /// ```
@@ -119,11 +118,10 @@ impl<T> Filter<T> {
     ///
     /// ```
     /// use async_io::os::kqueue::{Exit, Filter};
-    /// use std::num::NonZeroI32;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    /// let mut process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
+    /// let mut process = Filter::new(Exit::new(child)).unwrap();
     /// let inner = process.get_mut();
     /// # });
     /// ```
@@ -137,11 +135,10 @@ impl<T> Filter<T> {
     ///
     /// ```
     /// use async_io::os::kqueue::{Exit, Filter};
-    /// use std::num::NonZeroI32;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = std::process::Command::new("sleep").arg("5").spawn().unwrap();
-    /// let mut process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
+    /// let process = Filter::new(Exit::new(child)).unwrap();
     /// let inner = process.into_inner().unwrap();
     /// # });
     /// ```
@@ -157,13 +154,12 @@ impl<T> Filter<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use std::num::NonZeroI32;
     /// use std::process::Command;
     /// use async_io::os::kqueue::{Exit, Filter};
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = Command::new("sleep").arg("5").spawn()?;
-    /// let process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
+    /// let process = Filter::new(Exit::new(child))?;
     ///
     /// // Wait for the process to exit.
     /// process.ready().await?;
@@ -187,14 +183,13 @@ impl<T> Filter<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use std::num::NonZeroI32;
     /// use std::process::Command;
     /// use async_io::os::kqueue::{Exit, Filter};
     /// use futures_lite::future;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = Command::new("sleep").arg("5").spawn()?;
-    /// let process = Filter::new(Exit::new(NonZeroI32::new(child.id().try_into().unwrap()).unwrap())).unwrap();
+    /// let process = Filter::new(Exit::new(child))?;
     ///
     /// // Wait for the process to exit.
     /// future::poll_fn(|cx| process.poll_ready(cx)).await?;
@@ -239,7 +234,7 @@ impl QueueableSealed for Signal {
 }
 impl Queueable for Signal {}
 
-/// Wait for a process to exit.
+/// Wait for a child process to exit.
 ///
 /// When registered into [`Async`](crate::Async) via [`with_filter`](AsyncKqueueExt::with_filter),
 /// it will return a [`readable`](crate::Async::readable) event when the child process exits.
@@ -248,7 +243,19 @@ pub struct Exit(NonZeroI32);
 
 impl Exit {
     /// Create a new `Exit` object.
-    pub fn new(pid: NonZeroI32) -> Self {
+    pub fn new(child: Child) -> Self {
+        Self(
+            NonZeroI32::new(child.id().try_into().expect("unable to parse pid"))
+                .expect("cannot register pid with zero value"),
+        )
+    }
+
+    /// Create a new `Exit` object from a PID.
+    ///
+    /// # Safety
+    ///
+    /// The PID must be tied to an actual child process.
+    pub unsafe fn from_pid(pid: NonZeroI32) -> Self {
         Self(pid)
     }
 }

@@ -27,10 +27,12 @@ fn main() -> std::io::Result<()> {
             .expect("failed to spawn process");
 
         // Wrap the process in an `Async` object that waits for it to exit.
-        let process_handle = Filter::new(Exit::new(
-            NonZeroI32::new(process.id().try_into().expect("invalid process pid"))
-                .expect("non zero pid"),
-        ))?;
+        let process_handle = unsafe {
+            Filter::new(Exit::from_pid(
+                NonZeroI32::new(process.id().try_into().expect("invalid process pid"))
+                    .expect("non zero pid"),
+            ))?
+        };
 
         // Wait for the process to exit.
         process_handle.ready().await?;
