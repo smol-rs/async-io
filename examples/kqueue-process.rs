@@ -14,36 +14,24 @@
     target_os = "dragonfly",
 ))]
 fn main() -> std::io::Result<()> {
-    use std::{num::NonZeroI32, process::Command};
+    use std::process::Command;
 
     use async_io::os::kqueue::{Exit, Filter};
     use futures_lite::future;
 
     future::block_on(async {
         // Spawn a process.
-        let mut process = Command::new("sleep")
+        let process = Command::new("sleep")
             .arg("3")
             .spawn()
             .expect("failed to spawn process");
 
         // Wrap the process in an `Async` object that waits for it to exit.
-        let process_handle = unsafe {
-            Filter::new(Exit::from_pid(
-                NonZeroI32::new(process.id().try_into().expect("invalid process pid"))
-                    .expect("non zero pid"),
-            ))?
-        };
+        let process = Filter::new(Exit::new(process))?;
 
         // Wait for the process to exit.
-        process_handle.ready().await?;
+        process.ready().await?;
 
-        println!(
-            "Process exit code {:?}",
-            process
-                .try_wait()
-                .expect("error while waiting process")
-                .expect("process did not exit yet")
-        );
         Ok(())
     })
 }
