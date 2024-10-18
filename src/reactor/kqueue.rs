@@ -7,8 +7,8 @@ use polling::{Event, PollMode, Poller};
 
 use std::fmt;
 use std::io::Result;
+use std::num::NonZeroI32;
 use std::os::unix::io::{AsRawFd, BorrowedFd, RawFd};
-use std::process::Child;
 
 /// The raw registration into the reactor.
 ///
@@ -27,8 +27,8 @@ pub enum Registration {
     /// Raw signal number for signal delivery.
     Signal(Signal),
 
-    /// Process for process termination.
-    Process(Child),
+    /// Pid for process termination.
+    Process(NonZeroI32),
 }
 
 impl fmt::Debug for Registration {
@@ -62,8 +62,8 @@ impl Registration {
             Self::Signal(signal) => {
                 poller.add_filter(PollSignal(signal.0), token, PollMode::Oneshot)
             }
-            Self::Process(process) => poller.add_filter(
-                unsafe { Process::new(process, ProcessOps::Exit) },
+            Self::Process(pid) => poller.add_filter(
+                unsafe { Process::from_pid(*pid, ProcessOps::Exit) },
                 token,
                 PollMode::Oneshot,
             ),
@@ -82,8 +82,8 @@ impl Registration {
             Self::Signal(signal) => {
                 poller.modify_filter(PollSignal(signal.0), interest.key, PollMode::Oneshot)
             }
-            Self::Process(process) => poller.modify_filter(
-                unsafe { Process::new(process, ProcessOps::Exit) },
+            Self::Process(pid) => poller.modify_filter(
+                unsafe { Process::from_pid(*pid, ProcessOps::Exit) },
                 interest.key,
                 PollMode::Oneshot,
             ),
@@ -100,8 +100,8 @@ impl Registration {
                 poller.delete(fd)
             }
             Self::Signal(signal) => poller.delete_filter(PollSignal(signal.0)),
-            Self::Process(process) => {
-                poller.delete_filter(unsafe { Process::new(process, ProcessOps::Exit) })
+            Self::Process(pid) => {
+                poller.delete_filter(unsafe { Process::from_pid(*pid, ProcessOps::Exit) })
             }
         }
     }
