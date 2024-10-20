@@ -58,5 +58,4 @@ openbsd_task:
     # OpenBSD is tier 3 target, so install rust from package manager instead of rustup
     - pkg_add git rust
   test_script:
-    # `test` fails because our tests have an MSRV of 1.70.
-    - cargo build
+    - cargo test
