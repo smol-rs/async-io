@@ -1,3 +1,10 @@
+# Version 2.4.0
+
+- Make it so the `Exit` filter can be created without passing ownership of the
+  `Child` object. (#207)
+- Add support for visionOS. (#202)
+- Fix typo in documentation. (#204)
+
 # Version 2.3.4
 
 - Update `windows-sys` to v0.59. (#195)
