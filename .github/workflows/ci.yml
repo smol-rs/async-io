@@ -53,12 +53,11 @@ jobs:
         if: startsWith(matrix.rust, 'nightly')
         run: cargo check -Z features=dev_dep
       - name: Add rust-src
-        if: startsWith(matrix.rust, 'nightly')
+        if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
         run: rustup component add rust-src
-# https://github.com/smol-rs/async-io/pull/144#issuecomment-1666927490
-#      - name: Check selected Tier 3 targets
-#        if: startsWith(matrix.rust, 'nightly') && matrix.os == 'ubuntu-latest'
-#        run: cargo check -Z build-std --target=riscv32imc-esp-espidf
+      - name: Check ESP-IDF
+        if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
+        run: cargo check -Z build-std --target riscv32imc-esp-espidf
       - run: cargo test
 
   # Copied from: https://github.com/rust-lang/stacker/pull/19/files
