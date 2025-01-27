@@ -45,7 +45,7 @@ async-channel = "2.0.0"
 async-net = "2.0.0"
 blocking = "1"
 criterion = { version = "0.4", default-features = false, features = ["cargo_bench_support"] }
-getrandom = "0.2.7"
+getrandom = "0.3.0"
 signal-hook = "0.3"
 tempfile = "3"
 
