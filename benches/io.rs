@@ -102,7 +102,7 @@ fn connect_and_accept(c: &mut Criterion) {
             use std::os::unix::net::{UnixListener, UnixStream};
 
             let mut id = [0u8; 8];
-            getrandom::getrandom(&mut id).unwrap();
+            getrandom::fill(&mut id).unwrap();
             let id = u64::from_ne_bytes(id);
 
             let socket_addr = format!("/tmp/async-io-bench-{}.sock", id);
