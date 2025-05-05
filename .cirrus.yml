@@ -45,17 +45,18 @@ netbsd_task:
     - . $HOME/.cargo/env
     - cargo test
 
-openbsd_task:
-  name: test ($TARGET)
-  compute_engine_instance:
-    image_project: pg-ci-images
-    # https://github.com/anarazel/pg-vm-images/blob/main/packer/openbsd.pkrvars.hcl
-    image: family/pg-ci-openbsd-vanilla
-    platform: openbsd
-  env:
-    TARGET: x86_64-unknown-openbsd
-  setup_script:
-    # OpenBSD is tier 3 target, so install rust from package manager instead of rustup
-    - pkg_add git rust
-  test_script:
-    - cargo test
+# Temporarily disabled because openBSD 7.5 is EoL, waiting for an update.
+#openbsd_task:
+#  name: test ($TARGET)
+#  compute_engine_instance:
+#    image_project: pg-ci-images
+#    # https://github.com/anarazel/pg-vm-images/blob/main/packer/openbsd.pkrvars.hcl
+#    image: family/pg-ci-openbsd-vanilla
+#    platform: openbsd
+#  env:
+#    TARGET: x86_64-unknown-openbsd
+#  setup_script:
+#    # OpenBSD is tier 3 target, so install rust from package manager instead of rustup
+#    - pkg_add git rust
+#  test_script:
+#    - cargo test
