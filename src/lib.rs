@@ -85,6 +85,7 @@ use futures_lite::{future, pin, ready};
 
 use rustix::io as rio;
 use rustix::net as rn;
+use rustix::net::addr::SocketAddrArg;
 
 use crate::reactor::{Reactor, Registration, Source};
 
@@ -1513,8 +1514,8 @@ impl Async<TcpStream> {
         // Figure out how to handle this address.
         let addr = addr.into();
         let (domain, sock_addr) = match addr {
-            SocketAddr::V4(v4) => (rn::AddressFamily::INET, rn::SocketAddrAny::V4(v4)),
-            SocketAddr::V6(v6) => (rn::AddressFamily::INET6, rn::SocketAddrAny::V6(v6)),
+            SocketAddr::V4(v4) => (rn::AddressFamily::INET, v4.as_any()),
+            SocketAddr::V6(v6) => (rn::AddressFamily::INET6, v6.as_any()),
         };
 
         // Begin async connect.
@@ -2150,7 +2151,7 @@ fn connect(
     }
 
     #[allow(unreachable_patterns)]
-    match rn::connect_any(&socket, &addr) {
+    match rn::connect(&socket, &addr) {
         Ok(_) => {}
         #[cfg(unix)]
         Err(rio::Errno::INPROGRESS) => {}
