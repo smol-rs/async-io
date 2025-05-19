@@ -44,7 +44,7 @@ windows-sys = { version = "0.59.0", features = ["Win32_Foundation"] }
 async-channel = "2.0.0"
 async-net = "2.0.0"
 blocking = "1"
-criterion = { version = "0.4", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.6", default-features = false, features = ["cargo_bench_support"] }
 getrandom = "0.3"
 signal-hook = "0.3"
 tempfile = "3"
