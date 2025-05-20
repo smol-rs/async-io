@@ -1,3 +1,8 @@
+# Unreleased
+
+- Update `criterion` to v0.6.
+- Update to `rust-version` 1.66.
+
 # Version 2.4.0
 
 - Make it so the `Exit` filter can be created without passing ownership of the
