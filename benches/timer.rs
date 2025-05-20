@@ -1,7 +1,9 @@
 //! Benchmarks for registering timers.
 
+use std::hint::black_box;
+
 use async_io::Timer;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures_lite::future;
 use std::time::Duration;
 
@@ -24,7 +26,7 @@ fn register_timer(c: &mut Criterion) {
 
         // Benchmark registering a timer.
         group.bench_function(
-            format!("register_timer.({} previous timers)", prev_timer_count),
+            format!("register_timer.({prev_timer_count} previous timers)"),
             |b| {
                 b.iter(|| {
                     let timer = make_timer();
