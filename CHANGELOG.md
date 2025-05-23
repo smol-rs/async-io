@@ -1,3 +1,7 @@
+# Version 2.4.1
+
+- Update to rustix version 1.0.7. (#221)
+
 # Version 2.4.0
 
 - Make it so the `Exit` filter can be created without passing ownership of the
