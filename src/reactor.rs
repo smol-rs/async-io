@@ -316,7 +316,7 @@ impl ReactorLock<'_> {
                     if let Some(source) = sources.get(ev.key) {
                         let mut state = source.state.lock().unwrap();
 
-                        // Collect wakers if a writability event was emitted.
+                        // Collect wakers if any event was emitted.
                         for &(dir, emitted) in &[(WRITE, ev.writable), (READ, ev.readable)] {
                             if emitted {
                                 state[dir].tick = tick;
