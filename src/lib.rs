@@ -2104,6 +2104,7 @@ fn connect(
             target_os = "aix",
             target_vendor = "apple",
             target_os = "espidf",
+            target_os = "haiku",
             windows,
         )))]
         let flags = rn::SocketFlags::CLOEXEC;
@@ -2111,6 +2112,7 @@ fn connect(
             target_os = "aix",
             target_vendor = "apple",
             target_os = "espidf",
+            target_os = "haiku",
             windows,
         ))]
         let flags = rn::SocketFlags::empty();
