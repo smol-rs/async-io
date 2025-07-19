@@ -32,10 +32,10 @@ concurrent-queue = "2.2.0"
 futures-io = { version = "0.3.28", default-features = false, features = ["std"] }
 futures-lite = { version = "2.0.0", default-features = false }
 parking = "2.0.0"
-polling = "3.0.0"
+polling = "3.4.0"
 rustix = { version = "1.0.7", default-features = false, features = ["fs", "net", "std"] }
 slab = "0.4.2"
-tracing = { version = "0.1.37", default-features = false }
+tracing = { version = "0.1.37", default-features = false, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60.0", features = ["Win32_Foundation"] }

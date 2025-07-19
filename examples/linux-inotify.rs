@@ -52,7 +52,7 @@ fn main() -> std::io::Result<()> {
         // Wait for events in a loop and print them on the screen.
         loop {
             for event in unsafe { inotify.read_with_mut(read_op).await? } {
-                println!("{:?}", event);
+                println!("{event:?}");
             }
         }
     })
