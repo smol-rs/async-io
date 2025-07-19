@@ -48,10 +48,10 @@ jobs:
       - name: Install Rust
         # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
         run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
-      - name: Install cargo-hack
+      - name: Install cargo-hack and cargo-minimal-versions
         uses: taiki-e/install-action@v2
         with:
-          tool: cargo-hack
+          tool: cargo-hack,cargo-minimal-versions
       - run: cargo build --all --all-features --all-targets
       - run: cargo hack build --feature-powerset --no-dev-deps
       - name: Add rust-src
@@ -60,6 +60,7 @@ jobs:
       - name: Check ESP-IDF
         if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
         run: cargo check -Z build-std --target riscv32imc-esp-espidf
+      - run: cargo minimal-versions build --all --all-features
       - run: cargo test
 
   # Copied from: https://github.com/rust-lang/stacker/pull/19/files
