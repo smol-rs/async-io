@@ -48,10 +48,12 @@ jobs:
       - name: Install Rust
         # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
         run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack
       - run: cargo build --all --all-features --all-targets
-      - name: Run cargo check (without dev-dependencies to catch missing feature flags)
-        if: startsWith(matrix.rust, 'nightly')
-        run: cargo check -Z features=dev_dep
+      - run: cargo hack build --feature-powerset --no-dev-deps
       - name: Add rust-src
         if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
         run: rustup component add rust-src
