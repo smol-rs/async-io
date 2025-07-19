@@ -24,7 +24,7 @@ fn register_timer(c: &mut Criterion) {
 
         // Benchmark registering a timer.
         group.bench_function(
-            format!("register_timer.({} previous timers)", prev_timer_count),
+            format!("register_timer.({prev_timer_count} previous timers)"),
             |b| {
                 b.iter(|| {
                     let timer = make_timer();
