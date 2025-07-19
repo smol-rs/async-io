@@ -128,10 +128,9 @@ jobs:
     # - name: HermitOS
     #   if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
     #   run: cargo check -Z build-std --target x86_64-unknown-hermit
-    # TODO:
-    # - name: Check haiku
-    #   if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
-    #   run: cargo check -Z build-std --target x86_64-unknown-haiku
+    - name: Check haiku
+      if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
+      run: cargo check -Z build-std --target x86_64-unknown-haiku
     - name: Check vita
       if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
       run: cargo check -Z build-std --target armv7-sony-vita-newlibeabihf
