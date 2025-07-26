@@ -1,3 +1,15 @@
+# Version 2.5.0
+
+- Add a new optional `tracing` feature. When enabled, this feature adds logging
+  to the implementation. By default it is disabled. (#234)
+- Add support for Haiku (#233)
+- Fix build failure with minimal-versions. (#234)
+- Update `windows-sys` to v0.60. (#230)
+
+# Version 2.4.1
+
+- Update to rustix version 1.0.7. (#221)
+
 # Version 2.4.0
 
 - Make it so the `Exit` filter can be created without passing ownership of the

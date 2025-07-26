@@ -204,7 +204,9 @@ impl Reactor {
     ///
     /// Returns the duration until the next timer before this method was called.
     fn process_timers(&self, wakers: &mut Vec<Waker>) -> Option<Duration> {
+        #[cfg(feature = "tracing")]
         let span = tracing::trace_span!("process_timers");
+        #[cfg(feature = "tracing")]
         let _enter = span.enter();
 
         let mut timers = self.timers.lock().unwrap();
@@ -235,6 +237,7 @@ impl Reactor {
         drop(timers);
 
         // Add wakers to the list.
+        #[cfg(feature = "tracing")]
         tracing::trace!("{} ready wakers", ready.len());
 
         for (_, waker) in ready {
@@ -271,7 +274,9 @@ pub(crate) struct ReactorLock<'a> {
 impl ReactorLock<'_> {
     /// Processes new events, blocking until the first event or the timeout.
     pub(crate) fn react(&mut self, timeout: Option<Duration>) -> io::Result<()> {
+        #[cfg(feature = "tracing")]
         let span = tracing::trace_span!("react");
+        #[cfg(feature = "tracing")]
         let _enter = span.enter();
 
         let mut wakers = Vec::new();
@@ -316,7 +321,7 @@ impl ReactorLock<'_> {
                     if let Some(source) = sources.get(ev.key) {
                         let mut state = source.state.lock().unwrap();
 
-                        // Collect wakers if a writability event was emitted.
+                        // Collect wakers if any event was emitted.
                         for &(dir, emitted) in &[(WRITE, ev.writable), (READ, ev.readable)] {
                             if emitted {
                                 state[dir].tick = tick;
@@ -353,6 +358,7 @@ impl ReactorLock<'_> {
         };
 
         // Wake up ready tasks.
+        #[cfg(feature = "tracing")]
         tracing::trace!("{} ready wakers", wakers.len());
         for waker in wakers {
             // Don't let a panicking waker blow everything up.
@@ -518,6 +524,7 @@ impl<T> Future for Readable<'_, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
+        #[cfg(feature = "tracing")]
         tracing::trace!(fd = ?self.0.handle.source.registration, "readable");
         Poll::Ready(Ok(()))
     }
@@ -538,6 +545,7 @@ impl<T> Future for ReadableOwned<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
+        #[cfg(feature = "tracing")]
         tracing::trace!(fd = ?self.0.handle.source.registration, "readable_owned");
         Poll::Ready(Ok(()))
     }
@@ -558,6 +566,7 @@ impl<T> Future for Writable<'_, T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
+        #[cfg(feature = "tracing")]
         tracing::trace!(fd = ?self.0.handle.source.registration, "writable");
         Poll::Ready(Ok(()))
     }
@@ -578,6 +587,7 @@ impl<T> Future for WritableOwned<T> {
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
         ready!(Pin::new(&mut self.0).poll(cx))?;
+        #[cfg(feature = "tracing")]
         tracing::trace!(fd = ?self.0.handle.source.registration, "writable_owned");
         Poll::Ready(Ok(()))
     }

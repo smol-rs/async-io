@@ -44,7 +44,9 @@ pub(crate) fn init() {
 
 /// The main loop for the "async-io" thread.
 fn main_loop(parker: parking::Parker) {
+    #[cfg(feature = "tracing")]
     let span = tracing::trace_span!("async_io::main_loop");
+    #[cfg(feature = "tracing")]
     let _enter = span.enter();
 
     // The last observed reactor tick.
@@ -65,6 +67,7 @@ fn main_loop(parker: parking::Parker) {
             };
 
             if let Some(mut reactor_lock) = reactor_lock {
+                #[cfg(feature = "tracing")]
                 tracing::trace!("waiting on I/O");
                 reactor_lock.react(None).ok();
                 last_tick = Reactor::get().ticker();
@@ -80,8 +83,10 @@ fn main_loop(parker: parking::Parker) {
                 .get(sleeps as usize)
                 .unwrap_or(&10_000);
 
+            #[cfg(feature = "tracing")]
             tracing::trace!("sleeping for {} us", delay_us);
             if parker.park_timeout(Duration::from_micros(*delay_us)) {
+                #[cfg(feature = "tracing")]
                 tracing::trace!("notified");
 
                 // If notified before timeout, reset the last tick and the sleep counter.
@@ -109,7 +114,9 @@ fn main_loop(parker: parking::Parker) {
 /// });
 /// ```
 pub fn block_on<T>(future: impl Future<Output = T>) -> T {
+    #[cfg(feature = "tracing")]
     let span = tracing::trace_span!("async_io::block_on");
+    #[cfg(feature = "tracing")]
     let _enter = span.enter();
 
     // Increment `BLOCK_ON_COUNT` so that the "async-io" thread becomes less aggressive.
@@ -200,12 +207,14 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
                 // Ensure the cached parker is reset to the unnotified state for future block_on calls,
                 // in case this future called wake and then immediately returned Poll::Ready.
                 p.park_timeout(Duration::from_secs(0));
+                #[cfg(feature = "tracing")]
                 tracing::trace!("completed");
                 return t;
             }
 
             // Check if a notification was received.
             if p.park_timeout(Duration::from_secs(0)) {
+                #[cfg(feature = "tracing")]
                 tracing::trace!("notified");
 
                 // Try grabbing a lock on the reactor to process I/O events.
@@ -239,22 +248,26 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
                     // Check if a notification has been received before `io_blocked` was updated
                     // because in that case the reactor won't receive a wakeup.
                     if p.park_timeout(Duration::from_secs(0)) {
+                        #[cfg(feature = "tracing")]
                         tracing::trace!("notified");
                         break;
                     }
 
                     // Wait for I/O events.
+                    #[cfg(feature = "tracing")]
                     tracing::trace!("waiting on I/O");
                     reactor_lock.react(None).ok();
 
                     // Check if a notification has been received.
                     if p.park_timeout(Duration::from_secs(0)) {
+                        #[cfg(feature = "tracing")]
                         tracing::trace!("notified");
                         break;
                     }
 
                     // Check if this thread been handling I/O events for a long time.
                     if start.elapsed() > Duration::from_micros(500) {
+                        #[cfg(feature = "tracing")]
                         tracing::trace!("stops hogging the reactor");
 
                         // This thread is clearly processing I/O events for some other threads
@@ -274,6 +287,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
                 }
             } else {
                 // Wait for an actual notification.
+                #[cfg(feature = "tracing")]
                 tracing::trace!("sleep until notification");
                 p.park();
             }

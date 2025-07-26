@@ -32,7 +32,7 @@ fn read_and_write(b: &mut Criterion) {
             (listener, reader, writer)
         };
 
-        group.bench_function(format!("TcpStream.{}", driver_name), move |b| {
+        group.bench_function(format!("TcpStream.{driver_name}"), move |b| {
             let (_listener, mut reader, mut writer) = init_reader_writer();
             let mut buf = vec![0x42; TCP_AMOUNT];
 
@@ -55,7 +55,7 @@ fn read_and_write(b: &mut Criterion) {
             use std::os::unix::net::UnixStream;
             const UNIX_AMOUNT: usize = 1024;
 
-            group.bench_function(format!("UnixStream.{}", driver_name), |b| {
+            group.bench_function(format!("UnixStream.{driver_name}"), |b| {
                 let (mut reader, mut writer) = Async::<UnixStream>::pair().unwrap();
                 let mut buf = vec![0x42; UNIX_AMOUNT];
 
@@ -79,7 +79,7 @@ fn connect_and_accept(c: &mut Criterion) {
 
     for (driver_name, exec) in [("Undriven", false), ("Driven", true)] {
         // Benchmark the TCP streams.
-        group.bench_function(format!("TcpStream.{}", driver_name), move |b| {
+        group.bench_function(format!("TcpStream.{driver_name}"), move |b| {
             let socket_addr =
                 SocketAddr::new("127.0.0.1".parse::<Ipv4Addr>().unwrap().into(), 12345);
             let listener = Async::<TcpListener>::bind(socket_addr).unwrap();
@@ -105,10 +105,10 @@ fn connect_and_accept(c: &mut Criterion) {
             getrandom::fill(&mut id).unwrap();
             let id = u64::from_ne_bytes(id);
 
-            let socket_addr = format!("/tmp/async-io-bench-{}.sock", id);
+            let socket_addr = format!("/tmp/async-io-bench-{id}.sock");
             let listener = Async::<UnixListener>::bind(&socket_addr).unwrap();
 
-            group.bench_function(format!("UnixStream.{}", driver_name), |b| {
+            group.bench_function(format!("UnixStream.{driver_name}"), |b| {
                 b.iter(|| {
                     block_on(
                         async {
@@ -142,7 +142,7 @@ fn udp_send_recv(c: &mut Criterion) {
     let mut buf = vec![0x42; UDP_AMOUNT];
 
     for (driver_name, exec) in [("Undriven", false), ("Driven", true)] {
-        group.bench_function(format!("UdpSocket.{}", driver_name), |b| {
+        group.bench_function(format!("UdpSocket.{driver_name}"), |b| {
             b.iter(|| {
                 let buf = &mut buf;
 

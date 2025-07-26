@@ -28,6 +28,11 @@ defaults:
 jobs:
   fmt:
     uses: smol-rs/.github/.github/workflows/fmt.yml@main
+  clippy:
+    uses: smol-rs/.github/.github/workflows/clippy.yml@main
+    with:
+      # macOS for kqueue, Windows for windows.
+      additional-targets: aarch64-apple-darwin x86_64-pc-windows-msvc
   security_audit:
     uses: smol-rs/.github/.github/workflows/security_audit.yml@main
     permissions:
@@ -48,16 +53,13 @@ jobs:
       - name: Install Rust
         # --no-self-update is necessary because the windows environment cannot self-update rustup.exe.
         run: rustup update ${{ matrix.rust }} --no-self-update && rustup default ${{ matrix.rust }}
+      - name: Install cargo-hack and cargo-minimal-versions
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cargo-hack,cargo-minimal-versions
       - run: cargo build --all --all-features --all-targets
-      - name: Run cargo check (without dev-dependencies to catch missing feature flags)
-        if: startsWith(matrix.rust, 'nightly')
-        run: cargo check -Z features=dev_dep
-      - name: Add rust-src
-        if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
-        run: rustup component add rust-src
-      - name: Check ESP-IDF
-        if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
-        run: cargo check -Z build-std --target riscv32imc-esp-espidf
+      - run: cargo hack build --feature-powerset --no-dev-deps
+      - run: cargo minimal-versions build --all --all-features
       - run: cargo test
 
   # Copied from: https://github.com/rust-lang/stacker/pull/19/files
@@ -83,12 +85,16 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest]
+        rust: [nightly, stable]
     steps:
     - uses: actions/checkout@v4
     - name: Install Rust
-      run: rustup update stable
+      run: rustup update ${{ matrix.rust }} && rustup default ${{ matrix.rust }}
     - name: Install cross
       uses: taiki-e/install-action@cross
+    - name: Add rust-src
+      if: startsWith(matrix.rust, 'nightly')
+      run: rustup component add rust-src
     # We don't test BSDs, since we already test them in Cirrus.
     - name: Android
       if: startsWith(matrix.os, 'ubuntu')
@@ -113,6 +119,35 @@ jobs:
       run: |
         rustup target add x86_64-unknown-illumos
         cargo build --target x86_64-unknown-illumos
+    - name: Redox
+      if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
+      run: |
+        rustup target add x86_64-unknown-redox
+        cargo check --target x86_64-unknown-redox
+    # TODO:
+    # - name: HermitOS
+    #   if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
+    #   run: cargo check -Z build-std --target x86_64-unknown-hermit
+    - name: Check haiku
+      if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
+      run: cargo check -Z build-std --target x86_64-unknown-haiku
+    - name: Check vita
+      if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
+      run: cargo check -Z build-std --target armv7-sony-vita-newlibeabihf
+    - name: Check ESP-IDF
+      if: startsWith(matrix.rust, 'nightly') && startsWith(matrix.os, 'ubuntu')
+      run: cargo check -Z build-std --target riscv32imc-esp-espidf
+
+  wine:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Rust
+        run: rustup update stable
+      - uses: taiki-e/setup-cross-toolchain-action@v1
+        with:
+          target: x86_64-pc-windows-gnu
+      - run: cargo test --target x86_64-pc-windows-gnu
 
   msrv:
     runs-on: ${{ matrix.os }}
@@ -125,11 +160,7 @@ jobs:
       - name: Install cargo-hack
         uses: taiki-e/install-action@cargo-hack
       - run: cargo hack build --no-dev-deps --rust-version
-
-  clippy:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - name: Install Rust
-        run: rustup update stable
-      - run: cargo clippy --all-features --all-targets
+      - run: cargo hack build --no-dev-deps --rust-version --target x86_64-unknown-freebsd
+        if: startsWith(matrix.os, 'ubuntu')
+      - run: cargo hack build --no-dev-deps --rust-version --target x86_64-unknown-netbsd
+        if: startsWith(matrix.os, 'ubuntu')
