@@ -1,5 +1,7 @@
 //! Benchmarks for registering timers.
 
+#![allow(clippy::incompatible_msrv)] // false positive: https://github.com/rust-lang/rust-clippy/issues/12257#issuecomment-2093667187
+
 use async_io::Timer;
 use criterion::{criterion_group, criterion_main, Criterion};
 use futures_lite::future;
