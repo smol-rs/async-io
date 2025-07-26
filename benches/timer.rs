@@ -1,8 +1,9 @@
 //! Benchmarks for registering timers.
 
 use async_io::Timer;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures_lite::future;
+use std::hint::black_box;
 use std::time::Duration;
 
 /// Create a new `Timer` and poll it once to register it into the timer wheel.
