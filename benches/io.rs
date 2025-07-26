@@ -1,8 +1,9 @@
 //! Benchmarks for a variety of I/O operations.
 
 use async_io::Async;
-use criterion::{black_box, criterion_group, criterion_main, Criterion};
+use criterion::{criterion_group, criterion_main, Criterion};
 use futures_lite::{future, prelude::*};
+use std::hint::black_box;
 use std::net::{Ipv4Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 
 /// Block on a future, either using the I/O driver or simple parking.
