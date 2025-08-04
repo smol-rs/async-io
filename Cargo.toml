@@ -15,7 +15,7 @@ categories = ["asynchronous", "network-programming", "os"]
 exclude = ["/.*"]
 
 [lints.rust]
-unexpected_cfgs = { level = "warn", check-cfg = ['cfg(polling_test_poll_backend)'] }
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(polling_test_poll_backend)', 'cfg(async_io_no_pipe)' ] }
 
 [[bench]]
 name = "io"
@@ -39,6 +39,9 @@ tracing = { version = "0.1.37", default-features = false, optional = true }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { version = "0.60.0", features = ["Win32_Foundation"] }
+
+[build-dependencies]
+autocfg = "1"
 
 [dev-dependencies]
 async-channel = "2.0.0"
