@@ -342,7 +342,6 @@ impl Timer {
             None => {
                 // Overflow to never going off.
                 self.clear();
-                self.when = None;
             }
         }
     }
@@ -405,7 +404,6 @@ impl Timer {
             None => {
                 // Overflow to never going off.
                 self.clear();
-                self.when = None;
             }
         }
     }
@@ -443,12 +441,13 @@ impl Timer {
         }
     }
 
-    /// Helper function to clear the current timer.
-    fn clear(&mut self) {
+    /// Clear any timeouts set on this timer. It will never fire again until a new interval or instant is set.
+    pub fn clear(&mut self) {
         if let (Some(when), Some((id, _))) = (self.when, self.id_and_waker.as_ref()) {
             // Deregister the timer from the reactor.
             Reactor::get().remove_timer(when, *id);
         }
+        self.when = None;
     }
 }
 
