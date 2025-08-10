@@ -160,16 +160,16 @@ impl<T> Waitable<T> {
     /// # Examples
     ///
     /// ```no_run
-    /// use std::process::Command;
     /// use async_io::os::windows::Waitable;
-    /// use futures_lite::future;
+    /// use std::future::poll_fn;
+    /// use std::process::Command;
     ///
     /// # futures_lite::future::block_on(async {
     /// let child = Command::new("sleep").arg("5").spawn()?;
     /// let process = Waitable::new(child)?;
     ///
     /// // Wait for the process to exit.
-    /// future::poll_fn(|cx| process.poll_ready(cx)).await?;
+    /// poll_fn(|cx| process.poll_ready(cx)).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn poll_ready(&self, cx: &mut Context<'_>) -> Poll<Result<()>> {

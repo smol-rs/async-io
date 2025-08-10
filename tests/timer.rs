@@ -1,4 +1,4 @@
-use std::future::Future;
+use std::future::{poll_fn, Future};
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -91,7 +91,7 @@ fn set() {
             }
         });
 
-        future::poll_fn(|cx| Pin::new(&mut *timer.lock().unwrap()).poll(cx)).await;
+        poll_fn(|cx| Pin::new(&mut *timer.lock().unwrap()).poll(cx)).await;
 
         assert!(start.elapsed() >= Duration::from_secs(2));
         assert!(start.elapsed() < Duration::from_secs(10));
