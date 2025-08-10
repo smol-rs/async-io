@@ -64,7 +64,7 @@
 use std::future::Future;
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
-use std::pin::Pin;
+use std::pin::{pin, Pin};
 use std::sync::Arc;
 use std::task::{ready, Context, Poll, Waker};
 use std::time::{Duration, Instant};
@@ -80,8 +80,8 @@ use std::{
 use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, OwnedSocket, RawSocket};
 
 use futures_io::{AsyncRead, AsyncWrite};
+use futures_lite::future;
 use futures_lite::stream::{self, Stream};
-use futures_lite::{future, pin};
 
 use rustix::io as rio;
 use rustix::net as rn;
@@ -1472,13 +1472,14 @@ impl Async<TcpListener> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use futures_lite::{pin, stream::StreamExt};
+    /// use futures_lite::{stream::StreamExt};
     /// use std::net::TcpListener;
+    /// use std::pin::pin;
     ///
     /// # futures_lite::future::block_on(async {
     /// let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 8000))?;
     /// let incoming = listener.incoming();
-    /// pin!(incoming);
+    /// let mut incoming = pin!(incoming);
     ///
     /// while let Some(stream) = incoming.next().await {
     ///     let stream = stream?;
@@ -1808,13 +1809,14 @@ impl Async<UnixListener> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use futures_lite::{pin, stream::StreamExt};
+    /// use futures_lite::stream::StreamExt;
     /// use std::os::unix::net::UnixListener;
+    /// use std::pin::pin;
     ///
     /// # futures_lite::future::block_on(async {
     /// let listener = Async::<UnixListener>::bind("/tmp/socket")?;
     /// let incoming = listener.incoming();
-    /// pin!(incoming);
+    /// let mut incoming = pin!(incoming);
     ///
     /// while let Some(stream) = incoming.next().await {
     ///     let stream = stream?;
@@ -2055,7 +2057,7 @@ impl TryFrom<std::os::unix::net::UnixDatagram> for Async<std::os::unix::net::Uni
 /// Polls a future once, waits for a wakeup, and then optimistically assumes the future is ready.
 async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()> {
     let mut polled = false;
-    pin!(fut);
+    let mut fut = pin!(fut);
 
     future::poll_fn(|cx| {
         if !polled {

@@ -1,13 +1,12 @@
 use std::cell::{Cell, RefCell};
 use std::future::Future;
+use std::pin::pin;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
-use std::task::Waker;
-use std::task::{Context, Poll};
+use std::task::{Context, Poll, Waker};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use futures_lite::pin;
 use parking::Parker;
 
 use crate::reactor::Reactor;
@@ -196,7 +195,7 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
             }
         };
 
-        pin!(future);
+        let mut future = pin!(future);
 
         let cx = &mut Context::from_waker(waker);
 
