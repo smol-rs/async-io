@@ -61,7 +61,7 @@
     html_logo_url = "https://raw.githubusercontent.com/smol-rs/smol/master/assets/images/logo_fullsize_transparent.png"
 )]
 
-use std::future::Future;
+use std::future::{poll_fn, Future};
 use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::pin::{pin, Pin};
@@ -80,7 +80,6 @@ use std::{
 use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, OwnedSocket, RawSocket};
 
 use futures_io::{AsyncRead, AsyncWrite};
-use futures_lite::future;
 use futures_lite::stream::{self, Stream};
 
 use rustix::io as rio;
@@ -955,14 +954,14 @@ impl<T> Async<T> {
     ///
     /// ```no_run
     /// use async_io::Async;
-    /// use futures_lite::future;
+    /// use std::future::poll_fn;
     /// use std::net::TcpListener;
     ///
     /// # futures_lite::future::block_on(async {
     /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     ///
     /// // Wait until a client can be accepted.
-    /// future::poll_fn(|cx| listener.poll_readable(cx)).await?;
+    /// poll_fn(|cx| listener.poll_readable(cx)).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn poll_readable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -986,7 +985,7 @@ impl<T> Async<T> {
     ///
     /// ```
     /// use async_io::Async;
-    /// use futures_lite::future;
+    /// use std::future::poll_fn;
     /// use std::net::{TcpStream, ToSocketAddrs};
     ///
     /// # futures_lite::future::block_on(async {
@@ -994,7 +993,7 @@ impl<T> Async<T> {
     /// let stream = Async::<TcpStream>::connect(addr).await?;
     ///
     /// // Wait until the stream is writable.
-    /// future::poll_fn(|cx| stream.poll_writable(cx)).await?;
+    /// poll_fn(|cx| stream.poll_writable(cx)).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
     pub fn poll_writable(&self, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
@@ -2059,7 +2058,7 @@ async fn optimistic(fut: impl Future<Output = io::Result<()>>) -> io::Result<()>
     let mut polled = false;
     let mut fut = pin!(fut);
 
-    future::poll_fn(|cx| {
+    poll_fn(|cx| {
         if !polled {
             polled = true;
             fut.as_mut().poll(cx)
