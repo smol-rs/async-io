@@ -66,7 +66,7 @@ use std::io::{self, IoSlice, IoSliceMut, Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream, UdpSocket};
 use std::pin::Pin;
 use std::sync::Arc;
-use std::task::{Context, Poll, Waker};
+use std::task::{ready, Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 #[cfg(unix)]
@@ -81,7 +81,7 @@ use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, OwnedSocket, R
 
 use futures_io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
-use futures_lite::{future, pin, ready};
+use futures_lite::{future, pin};
 
 use rustix::io as rio;
 use rustix::net as rn;

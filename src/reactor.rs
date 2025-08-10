@@ -9,11 +9,10 @@ use std::panic;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock};
-use std::task::{Context, Poll, Waker};
+use std::task::{ready, Context, Poll, Waker};
 use std::time::{Duration, Instant};
 
 use concurrent_queue::ConcurrentQueue;
-use futures_lite::ready;
 use polling::{Event, Events, Poller};
 use slab::Slab;
 
