@@ -138,6 +138,8 @@ pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 ///     .await?;
 /// # std::io::Result::Ok(()) });
 /// ```
+#[doc(alias = "sleep")]
+#[doc(alias = "timeout")]
 #[derive(Debug)]
 pub struct Timer {
     /// This timer's ID and last waker that polled it.
