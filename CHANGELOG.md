@@ -1,3 +1,11 @@
+# Version 2.6.0
+
+- Bump MSRV to 1.71. (#243)
+- Expose `Timer::clear`. (#239)
+- Implement `IoSafe` for `std::io::PipeReader` and `std::io::PipeWriter` (#237)
+- Update to `windows-sys` v0.61. (#243)
+- Remove dependency on `async_lock`. (#240)
+
 # Version 2.5.0
 
 - Add a new optional `tracing` feature. When enabled, this feature adds logging
