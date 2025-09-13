@@ -6,7 +6,7 @@ name = "async-io"
 version = "2.5.0"
 authors = ["Stjepan Glavina <stjepang@gmail.com>"]
 edition = "2021"
-rust-version = "1.70"
+rust-version = "1.71"
 description = "Async I/O and timers"
 license = "Apache-2.0 OR MIT"
 repository = "https://github.com/smol-rs/async-io"
@@ -37,7 +37,7 @@ slab = "0.4.2"
 tracing = { version = "0.1.37", default-features = false, optional = true }
 
 [target.'cfg(windows)'.dependencies]
-windows-sys = { version = "0.60.0", features = ["Win32_Foundation"] }
+windows-sys = { version = "0.61", features = ["Win32_Foundation"] }
 
 [build-dependencies]
 autocfg = "1"

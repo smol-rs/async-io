@@ -1252,7 +1252,7 @@ unsafe impl IoSafe for std::process::ChildStderr {}
 #[cfg(unix)]
 unsafe impl IoSafe for std::os::unix::net::UnixStream {}
 
-// PipeReader & PipeWriter require std >= 1.87, our MSRV is 1.70, hence
+// PipeReader & PipeWriter require std >= 1.87, our MSRV is 1.71, hence
 // conditional on cfg()s, generated from build.rs
 #[cfg(not(async_io_no_pipe))]
 unsafe impl IoSafe for std::io::PipeReader {}
