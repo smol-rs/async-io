@@ -46,7 +46,7 @@ autocfg = "1"
 async-channel = "2.0.0"
 async-net = "2.0.0"
 blocking = "1"
-criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+criterion = { version = "0.8", default-features = false, features = ["cargo_bench_support"] }
 getrandom = "0.3"
 signal-hook = "0.3"
 tempfile = "3"
