@@ -111,9 +111,6 @@ impl<T> Filter<T> {
 
     /// Gets a mutable reference to the underlying [`Queueable`] object.
     ///
-    /// Unlike in [`Async`], this method is safe to call, since dropping the [`Filter`] will
-    /// not cause any undefined behavior.
-    ///
     /// # Examples
     ///
     /// ```
@@ -126,7 +123,7 @@ impl<T> Filter<T> {
     /// # });
     /// ```
     pub fn get_mut(&mut self) -> &mut T {
-        unsafe { self.0.get_mut() }
+        self.0.get_mut()
     }
 
     /// Unwraps the inner [`Queueable`] object.

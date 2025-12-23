@@ -80,8 +80,6 @@ fn main() -> std::io::Result<()> {
         }
     }
 
-    unsafe impl async_io::IoSafe for UnixStream {}
-
     async fn client(addr: PathBuf) -> io::Result<()> {
         // Connect to the address.
         let stream = Async::new(UnixStream::from(uds_windows::UnixStream::connect(addr)?))?;

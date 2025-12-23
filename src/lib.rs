@@ -537,10 +537,6 @@ impl Stream for Timer {
 /// For higher-level primitives built on top of [`Async`], look into [`async-net`] or
 /// [`async-process`] (on Unix).
 ///
-/// The most notable caveat is that it is unsafe to access the inner I/O source mutably
-/// using this primitive. Traits likes [`AsyncRead`] and [`AsyncWrite`] are not implemented by
-/// default unless it is guaranteed that the resource won't be invalidated by reading or writing.
-/// See the [`IoSafe`] trait for more information.
 ///
 /// [`async-net`]: https://github.com/smol-rs/async-net
 /// [`async-process`]: https://github.com/smol-rs/async-process
@@ -680,9 +676,7 @@ impl<T: AsFd> Async<T> {
     /// it is not set. If not set to non-blocking mode, I/O operations may block the current thread
     /// and cause a deadlock in an asynchronous context.
     pub fn new_nonblocking(io: T) -> io::Result<Async<T>> {
-        // SAFETY: It is impossible to drop the I/O source while it is registered through
-        // this type.
-        let registration = unsafe { Registration::new(io.as_fd()) };
+        let registration = Registration::new(io.as_fd());
 
         Ok(Async {
             source: Reactor::get().insert_io(registration)?,
@@ -775,10 +769,7 @@ impl<T: AsSocket> Async<T> {
     /// and cause a deadlock in an asynchronous context.
     pub fn new_nonblocking(io: T) -> io::Result<Async<T>> {
         // Create the registration.
-        //
-        // SAFETY: It is impossible to drop the I/O source while it is registered through
-        // this type.
-        let registration = unsafe { Registration::new(io.as_socket()) };
+        let registration = Registration::new(io.as_socket());
 
         Ok(Async {
             source: Reactor::get().insert_io(registration)?,
@@ -839,10 +830,6 @@ impl<T> Async<T> {
 
     /// Gets a mutable reference to the inner I/O handle.
     ///
-    /// # Safety
-    ///
-    /// The underlying I/O source must not be dropped using this function.
-    ///
     /// # Examples
     ///
     /// ```
@@ -851,10 +838,10 @@ impl<T> Async<T> {
     ///
     /// # futures_lite::future::block_on(async {
     /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
-    /// let inner = unsafe { listener.get_mut() };
+    /// let inner = listener.get_mut();
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub unsafe fn get_mut(&mut self) -> &mut T {
+    pub fn get_mut(&mut self) -> &mut T {
         self.io.as_mut().unwrap()
     }
 
@@ -1044,10 +1031,6 @@ impl<T> Async<T> {
     ///
     /// The closure receives a mutable reference to the I/O handle.
     ///
-    /// # Safety
-    ///
-    /// In the closure, the underlying I/O source must not be dropped.
-    ///
     /// # Examples
     ///
     /// ```no_run
@@ -1058,10 +1041,10 @@ impl<T> Async<T> {
     /// let mut listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
     ///
     /// // Accept a new client asynchronously.
-    /// let (stream, addr) = unsafe { listener.read_with_mut(|l| l.accept()).await? };
+    /// let (stream, addr) = listener.read_with_mut(|l| l.accept()).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub async unsafe fn read_with_mut<R>(
+    pub async fn read_with_mut<R>(
         &mut self,
         op: impl FnMut(&mut T) -> io::Result<R>,
     ) -> io::Result<R> {
@@ -1116,11 +1099,6 @@ impl<T> Async<T> {
     /// [`io::ErrorKind::WouldBlock`]. In between iterations of the loop, it waits until the OS
     /// sends a notification that the I/O handle is writable.
     ///
-    /// # Safety
-    ///
-    /// The closure receives a mutable reference to the I/O handle. In the closure, the underlying
-    /// I/O source must not be dropped.
-    ///
     /// # Examples
     ///
     /// ```no_run
@@ -1132,10 +1110,10 @@ impl<T> Async<T> {
     /// socket.get_ref().connect("127.0.0.1:9000")?;
     ///
     /// let msg = b"hello";
-    /// let len = unsafe { socket.write_with_mut(|s| s.send(msg)).await? };
+    /// let len = socket.write_with_mut(|s| s.send(msg)).await?;
     /// # std::io::Result::Ok(()) });
     /// ```
-    pub async unsafe fn write_with_mut<R>(
+    pub async fn write_with_mut<R>(
         &mut self,
         op: impl FnMut(&mut T) -> io::Result<R>,
     ) -> io::Result<R> {
@@ -1170,19 +1148,9 @@ impl<T> Drop for Async<T> {
 
 /// Types whose I/O trait implementations do not drop the underlying I/O source.
 ///
-/// The resource contained inside of the [`Async`] cannot be invalidated. This invalidation can
-/// happen if the inner resource (the [`TcpStream`], [`UnixListener`] or other `T`) is moved out
-/// and dropped before the [`Async`]. Because of this, functions that grant mutable access to
-/// the inner type are unsafe, as there is no way to guarantee that the source won't be dropped
-/// and a dangling handle won't be left behind.
-///
-/// Unfortunately this extends to implementations of [`Read`] and [`Write`]. Since methods on those
-/// traits take `&mut`, there is no guarantee that the implementor of those traits won't move the
-/// source out while the method is being run.
-///
-/// This trait is an antidote to this predicament. By implementing this trait, the user pledges
-/// that using any I/O traits won't destroy the source. This way, [`Async`] can implement the
-/// `async` version of these I/O traits, like [`AsyncRead`] and [`AsyncWrite`].
+/// Previously, this constraint was used to ensure only certain I/O sources could
+/// be used with [`Async`]. But this constraint no longer applies, so this trait is
+/// now deprecated.
 ///
 /// # Safety
 ///
@@ -1201,6 +1169,7 @@ impl<T> Drop for Async<T> {
 ///
 /// [`AsyncRead`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncRead.html
 /// [`AsyncWrite`]: https://docs.rs/futures-io/latest/futures_io/trait.AsyncWrite.html
+#[deprecated = "this trait is now no longer required"]
 pub unsafe trait IoSafe {}
 
 /// Reference types can't be mutated.
@@ -1234,46 +1203,67 @@ pub unsafe trait IoSafe {}
 ///
 /// We solve this problem by only calling `as_fd()` once to get the original source. Implementations
 /// like this are considered buggy (but not unsound) and are thus not really supported by `async-io`.
+#[allow(deprecated)]
 unsafe impl<T: ?Sized> IoSafe for &T {}
 
 // Can be implemented on top of libstd types.
+#[allow(deprecated)]
 unsafe impl IoSafe for std::fs::File {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::io::Stderr {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::io::Stdin {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::io::Stdout {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::io::StderrLock<'_> {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::io::StdinLock<'_> {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::io::StdoutLock<'_> {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::net::TcpStream {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::process::ChildStdin {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::process::ChildStdout {}
+#[allow(deprecated)]
 unsafe impl IoSafe for std::process::ChildStderr {}
 
 #[cfg(unix)]
+#[allow(deprecated)]
 unsafe impl IoSafe for std::os::unix::net::UnixStream {}
 
 // PipeReader & PipeWriter require std >= 1.87, our MSRV is 1.71, hence
 // conditional on cfg()s, generated from build.rs
 #[cfg(not(async_io_no_pipe))]
+#[allow(deprecated, clippy::incompatible_msrv)]
 unsafe impl IoSafe for std::io::PipeReader {}
 #[cfg(not(async_io_no_pipe))]
+#[allow(deprecated, clippy::incompatible_msrv)]
 unsafe impl IoSafe for std::io::PipeWriter {}
 
+#[allow(deprecated)]
 unsafe impl<T: IoSafe + Read> IoSafe for std::io::BufReader<T> {}
+#[allow(deprecated)]
 unsafe impl<T: IoSafe + Write> IoSafe for std::io::BufWriter<T> {}
+#[allow(deprecated)]
 unsafe impl<T: IoSafe + Write> IoSafe for std::io::LineWriter<T> {}
+#[allow(deprecated)]
 unsafe impl<T: IoSafe + ?Sized> IoSafe for &mut T {}
+#[allow(deprecated)]
 unsafe impl<T: IoSafe + ?Sized> IoSafe for Box<T> {}
+#[allow(deprecated)]
 unsafe impl<T: Clone + IoSafe> IoSafe for std::borrow::Cow<'_, T> {}
 
-impl<T: IoSafe + Read> AsyncRead for Async<T> {
+impl<T: Read> AsyncRead for Async<T> {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &mut [u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match unsafe { (*self).get_mut() }.read(buf) {
+            match (*self).get_mut().read(buf) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1287,7 +1277,7 @@ impl<T: IoSafe + Read> AsyncRead for Async<T> {
         bufs: &mut [IoSliceMut<'_>],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match unsafe { (*self).get_mut() }.read_vectored(bufs) {
+            match (*self).get_mut().read_vectored(bufs) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1331,14 +1321,14 @@ where
     }
 }
 
-impl<T: IoSafe + Write> AsyncWrite for Async<T> {
+impl<T: Write> AsyncWrite for Async<T> {
     fn poll_write(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
         buf: &[u8],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match unsafe { (*self).get_mut() }.write(buf) {
+            match (*self).get_mut().write(buf) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1352,7 +1342,7 @@ impl<T: IoSafe + Write> AsyncWrite for Async<T> {
         bufs: &[IoSlice<'_>],
     ) -> Poll<io::Result<usize>> {
         loop {
-            match unsafe { (*self).get_mut() }.write_vectored(bufs) {
+            match (*self).get_mut().write_vectored(bufs) {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }
@@ -1362,7 +1352,7 @@ impl<T: IoSafe + Write> AsyncWrite for Async<T> {
 
     fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
         loop {
-            match unsafe { (*self).get_mut() }.flush() {
+            match (*self).get_mut().flush() {
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
                 res => return Poll::Ready(res),
             }

@@ -42,11 +42,7 @@ impl fmt::Debug for Registration {
 
 impl Registration {
     /// Add this file descriptor into the reactor.
-    ///
-    /// # Safety
-    ///
-    /// The provided file descriptor must be valid and not be closed while this object is alive.
-    pub(crate) unsafe fn new(f: BorrowedSocket<'_>) -> Self {
+    pub(crate) fn new(f: BorrowedSocket<'_>) -> Self {
         Self::Socket(f.as_raw_socket())
     }
 
@@ -55,20 +51,17 @@ impl Registration {
     /// # Safety
     ///
     /// The provided handle must be valid and not be closed while this object is alive.
-    pub(crate) unsafe fn new_waitable(f: BorrowedHandle<'_>) -> Self {
+    pub(crate) fn new_waitable(f: BorrowedHandle<'_>) -> Self {
         Self::Handle(f.as_raw_handle())
     }
 
     /// Registers the object into the reactor.
     #[inline]
     pub(crate) fn add(&self, poller: &Poller, token: usize) -> Result<()> {
-        // SAFETY: This object's existence validates the invariants of Poller::add
-        unsafe {
-            match self {
-                Self::Socket(raw) => poller.add(*raw, Event::none(token)),
-                Self::Handle(handle) => {
-                    poller.add_waitable(*handle, Event::none(token), PollMode::Oneshot)
-                }
+        match self {
+            Self::Socket(raw) => poller.add(*raw, Event::none(token)),
+            Self::Handle(handle) => {
+                poller.add_waitable(*handle, Event::none(token), PollMode::Oneshot)
             }
         }
     }

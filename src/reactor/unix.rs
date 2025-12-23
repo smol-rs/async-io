@@ -26,19 +26,14 @@ impl fmt::Debug for Registration {
 
 impl Registration {
     /// Add this file descriptor into the reactor.
-    ///
-    /// # Safety
-    ///
-    /// The provided file descriptor must be valid and not be closed while this object is alive.
-    pub(crate) unsafe fn new(f: BorrowedFd<'_>) -> Self {
+    pub(crate) fn new(f: BorrowedFd<'_>) -> Self {
         Self { raw: f.as_raw_fd() }
     }
 
     /// Registers the object into the reactor.
     #[inline]
     pub(crate) fn add(&self, poller: &Poller, token: usize) -> Result<()> {
-        // SAFETY: This object's existence validates the invariants of Poller::add
-        unsafe { poller.add(self.raw, Event::none(token)) }
+        poller.add(self.raw, Event::none(token))
     }
 
     /// Re-registers the object into the reactor.
