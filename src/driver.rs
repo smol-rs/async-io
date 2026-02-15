@@ -1,7 +1,7 @@
 use std::cell::{Cell, RefCell};
 use std::future::Future;
 use std::pin::pin;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{fence, AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, OnceLock};
 use std::task::{Context, Poll, Waker};
 use std::thread;
@@ -14,10 +14,14 @@ use crate::reactor::Reactor;
 /// Number of currently active `block_on()` invocations.
 static BLOCK_ON_COUNT: AtomicUsize = AtomicUsize::new(0);
 
+/// Number of currently alive `Async` or `Timer` instances.
+static ALIVE_RESOURCE_COUNT: AtomicUsize = AtomicUsize::new(0);
+
+/// Raw unparker for the "async-io" thread.
+static UNPARKER: OnceLock<parking::Unparker> = OnceLock::new();
+
 /// Unparker for the "async-io" thread.
 fn unparker() -> &'static parking::Unparker {
-    static UNPARKER: OnceLock<parking::Unparker> = OnceLock::new();
-
     UNPARKER.get_or_init(|| {
         let (parker, unparker) = parking::pair();
 
@@ -35,9 +39,35 @@ fn unparker() -> &'static parking::Unparker {
     })
 }
 
-/// Initializes the "async-io" thread.
-pub(crate) fn init() {
-    let _ = unparker();
+/// Tell if the "async-io" thread is spawned.
+pub fn is_async_io_thread_spawned() -> bool {
+    UNPARKER.get().is_some()
+}
+
+/// Decrement the number of currently alive `Async` or `Timer` instances.
+#[inline]
+pub(crate) fn decrement_alive() {
+    ALIVE_RESOURCE_COUNT.fetch_sub(1, Ordering::Relaxed);
+}
+
+/// Increments the number of currently alive `Async` or `Timer` instances.
+#[inline]
+pub(crate) fn increment_alive() {
+    // If this is the first resource, spawn the `async-io` thread if necessary.
+    if ALIVE_RESOURCE_COUNT.fetch_add(1, Ordering::Relaxed) == 0 {
+        init();
+    }
+
+    #[cold]
+    fn init() {
+        // Emit a fence to ensure everything is in order.
+        fence(Ordering::SeqCst);
+
+        // If there are no `block_on()` calls, spawn the `async-io` thread.
+        if BLOCK_ON_COUNT.load(Ordering::SeqCst) == 0 {
+            unparker().unpark();
+        }
+    }
 }
 
 /// The main loop for the "async-io" thread.
@@ -118,12 +148,20 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
     let _enter = span.enter();
 
     // Increment `BLOCK_ON_COUNT` so that the "async-io" thread becomes less aggressive.
-    BLOCK_ON_COUNT.fetch_add(1, Ordering::SeqCst);
+    if BLOCK_ON_COUNT.fetch_add(1, Ordering::SeqCst) > 0 {
+        // There are other `block_on()` calls active, "async-io" must be spawned
+        // if it isn't already.
+        let _ = unparker();
+    }
 
     // Make sure to decrement `BLOCK_ON_COUNT` at the end and wake the "async-io" thread.
     let _guard = CallOnDrop(|| {
         BLOCK_ON_COUNT.fetch_sub(1, Ordering::SeqCst);
-        unparker().unpark();
+
+        // Only wake the `async-io` thread iff there are live resources.
+        if ALIVE_RESOURCE_COUNT.load(Ordering::SeqCst) > 0 {
+            unparker().unpark();
+        }
     });
 
     // Creates a parker and an associated waker that unparks it.
@@ -263,8 +301,11 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
                         break;
                     }
 
-                    // Check if this thread been handling I/O events for a long time.
-                    if start.elapsed() > Duration::from_micros(500) {
+                    // Check if this thread been handling I/O events for a long time
+                    // and if there are other threads waiting for I/O events.
+                    if start.elapsed() > Duration::from_micros(500)
+                        && BLOCK_ON_COUNT.load(Ordering::SeqCst) > 1
+                    {
                         #[cfg(feature = "tracing")]
                         tracing::trace!("stops hogging the reactor");
 

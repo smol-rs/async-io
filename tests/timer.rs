@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use async_io::Timer;
+use async_io::{is_async_io_thread_spawned, Timer};
 use futures_lite::{future, FutureExt, StreamExt};
 
 fn spawn<T: Send + 'static>(
@@ -26,6 +26,7 @@ fn smoke() {
     future::block_on(async {
         let start = Instant::now();
         Timer::after(Duration::from_secs(1)).await;
+        assert!(is_async_io_thread_spawned());
         assert!(start.elapsed() >= Duration::from_secs(1));
     });
 }

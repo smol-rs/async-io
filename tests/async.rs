@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::thread;
 use std::time::Duration;
 
-use async_io::{Async, Timer};
+use async_io::{is_async_io_thread_spawned, Async, Timer};
 use futures_lite::{future, prelude::*};
 #[cfg(unix)]
 use tempfile::tempdir;
@@ -36,6 +36,7 @@ fn spawn<T: Send + 'static>(
 fn tcp_connect() -> io::Result<()> {
     future::block_on(async {
         let listener = Async::<TcpListener>::bind(([127, 0, 0, 1], 0))?;
+        assert!(is_async_io_thread_spawned());
         let addr = listener.get_ref().local_addr()?;
         let task = spawn(async move { listener.accept().await });
 

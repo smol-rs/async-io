@@ -25,11 +25,31 @@
 //! [`block_on()`] function. The "async-io" thread is therefore just a fallback mechanism
 //! processing I/O events in case no other threads are.
 //!
+//! This thread is only spawned under either of the following conditions:
+//!
+//! - [`Async`]s or [`Timer`]s are created without an active [`block_on`] call.
+//! - More than one thread is calling [`block_on`] at a time.
+//!
+//! Therefore, if you would like to prevent this thread from being spawned, ensure
+//! that there is only one thread calling [`block_on`] at a time. This thread
+//! will handle all I/O events in lieu of the "async-io" thread.
+//!
+//! **Note:** If you are using [`async-process`], keep in mind that [`async-process`]'s
+//! reaper thread calls [`block_on`] on Unix platforms in order to reap child
+//! processes. If you are using [`async-process`] and are trying to avoid spawning
+//! the "async-io" thread, ensure that your executor is running the [`async_process::driver()`]
+//! future. In addition, the executor backing [`smol::spawn()`] as well as the
+//! multithreaded version of [`smol_macros::main!`] use [`block_on`] as well.
+//!
 //! [epoll]: https://en.wikipedia.org/wiki/Epoll
 //! [kqueue]: https://en.wikipedia.org/wiki/Kqueue
 //! [event ports]: https://illumos.org/man/port_create
 //! [IOCP]: https://learn.microsoft.com/en-us/windows/win32/fileio/i-o-completion-ports
 //! [`polling`]: https://docs.rs/polling
+//! [`async-process`]: https://docs.rs/async-process
+//! [`async_process::driver()`]: https://docs.rs/async-process/latest/async_process/fn.driver.html
+//! [`smol::spawn()`]: https://docs.rs/smol/latest/smol/fn.spawn.html
+//! [`smol_macros::main!`]: https://docs.rs/smol-macros/latest/smol_macros/macro.main.html
 //!
 //! # Examples
 //!
@@ -78,6 +98,10 @@ use std::{
 
 #[cfg(windows)]
 use std::os::windows::io::{AsRawSocket, AsSocket, BorrowedSocket, OwnedSocket, RawSocket};
+
+// Not public API.
+#[doc(hidden)]
+pub use driver::is_async_io_thread_spawned;
 
 use futures_io::{AsyncRead, AsyncWrite};
 use futures_lite::stream::{self, Stream};
@@ -192,6 +216,8 @@ impl Timer {
     /// # });
     /// ```
     pub fn never() -> Timer {
+        crate::driver::increment_alive();
+
         Timer {
             id_and_waker: None,
             when: None,
@@ -271,6 +297,8 @@ impl Timer {
     /// # });
     /// ```
     pub fn interval_at(start: Instant, period: Duration) -> Timer {
+        crate::driver::increment_alive();
+
         Timer {
             id_and_waker: None,
             when: Some(start),
@@ -458,6 +486,8 @@ impl Drop for Timer {
             // Deregister the timer from the reactor.
             Reactor::get().remove_timer(when, id);
         }
+
+        crate::driver::decrement_alive();
     }
 }
 
@@ -680,6 +710,8 @@ impl<T: AsFd> Async<T> {
     /// it is not set. If not set to non-blocking mode, I/O operations may block the current thread
     /// and cause a deadlock in an asynchronous context.
     pub fn new_nonblocking(io: T) -> io::Result<Async<T>> {
+        crate::driver::increment_alive();
+
         // SAFETY: It is impossible to drop the I/O source while it is registered through
         // this type.
         let registration = unsafe { Registration::new(io.as_fd()) };
@@ -774,6 +806,8 @@ impl<T: AsSocket> Async<T> {
     /// it is not set. If not set to non-blocking mode, I/O operations may block the current thread
     /// and cause a deadlock in an asynchronous context.
     pub fn new_nonblocking(io: T) -> io::Result<Async<T>> {
+        crate::driver::increment_alive();
+
         // Create the registration.
         //
         // SAFETY: It is impossible to drop the I/O source while it is registered through
@@ -1165,6 +1199,8 @@ impl<T> Drop for Async<T> {
             // Drop the I/O handle to close it.
             self.io.take();
         }
+
+        crate::driver::decrement_alive();
     }
 }
 

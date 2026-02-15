@@ -45,8 +45,10 @@ autocfg = "1"
 [dev-dependencies]
 async-channel = "2.0.0"
 async-net = "2.0.0"
+async-task = "4.7.1"
 blocking = "1"
 criterion = { version = "0.7", default-features = false, features = ["cargo_bench_support"] }
+fastrand = "2.3.0"
 getrandom = "0.3"
 signal-hook = "0.3"
 tempfile = "3"
