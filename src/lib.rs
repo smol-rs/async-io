@@ -1255,8 +1255,10 @@ unsafe impl IoSafe for std::os::unix::net::UnixStream {}
 // PipeReader & PipeWriter require std >= 1.87, our MSRV is 1.71, hence
 // conditional on cfg()s, generated from build.rs
 #[cfg(not(async_io_no_pipe))]
+#[allow(clippy::incompatible_msrv)]
 unsafe impl IoSafe for std::io::PipeReader {}
 #[cfg(not(async_io_no_pipe))]
+#[allow(clippy::incompatible_msrv)]
 unsafe impl IoSafe for std::io::PipeWriter {}
 
 unsafe impl<T: IoSafe + Read> IoSafe for std::io::BufReader<T> {}
