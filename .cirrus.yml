@@ -23,7 +23,7 @@ freebsd_task:
   setup_script:
     # https://github.com/cirruslabs/cirrus-ci-docs/issues/483
     - sudo sysctl net.inet.tcp.blackhole=0
-    - pkg install -y git
+    - pkg install -y git ca_root_nss
     - curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable --target $TARGET
   test_script:
     - . $HOME/.cargo/env
