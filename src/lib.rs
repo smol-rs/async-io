@@ -93,7 +93,7 @@ mod reactor;
 
 pub mod os;
 
-pub use driver::block_on;
+pub use driver::{block_on, yield_now};
 pub use reactor::{Readable, ReadableOwned, Writable, WritableOwned};
 
 /// A future or stream that emits timed events.
