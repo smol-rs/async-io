@@ -293,6 +293,32 @@ pub fn block_on<T>(future: impl Future<Output = T>) -> T {
     })
 }
 
+/// Processes any pending I/O events without blocking.
+///
+/// This function is intended to be called periodically from synchronous code that needs to
+/// drive `async-io` reactor without using [`block_on()`]. If another thread is currently
+/// driving the reactor, this function returns immediately without doing any work.
+///
+/// # Examples
+///
+/// ```
+/// // Periodically yield to async-io tasks from synchronous code.
+/// for _ in 0..10 {
+///     // ... do some synchronous work ...
+///     async_io::yield_now();
+/// }
+/// ```
+pub fn yield_now() {
+    #[cfg(feature = "tracing")]
+    let span = tracing::trace_span!("async_io::yield_now");
+    #[cfg(feature = "tracing")]
+    let _enter = span.enter();
+
+    if let Some(mut reactor_lock) = Reactor::get().try_lock() {
+        reactor_lock.react(Some(Duration::from_secs(0))).ok();
+    }
+}
+
 /// Runs a closure when dropped.
 struct CallOnDrop<F: Fn()>(F);
 
